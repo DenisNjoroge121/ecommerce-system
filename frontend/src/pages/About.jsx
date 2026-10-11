@@ -1,7 +1,30 @@
-import React from 'react';
-import { Store, MapPin, Mail, Phone, ShieldCheck, Clock } from 'lucide-react';
+import { useState } from 'react';
+import API from '../api';
+import { Store, MapPin, Mail, Phone, ShieldCheck, Clock, Send } from 'lucide-react';
 
 export default function About() {
+  const [formData, setFormData] = useState({ name: '', email: '', message: '' });
+  const [loading, setLoading] = useState(false);
+  const [successMsg, setSuccessMsg] = useState('');
+  const [errorMsg, setErrorMsg] = useState('');
+
+  const handleSubmit = async (e) => {
+    e.preventDefault();
+    setLoading(true);
+    setSuccessMsg('');
+    setErrorMsg('');
+
+    try {
+      await API.post('contact/', formData);
+      setSuccessMsg('Your message has been sent successfully! We will get back to you soon.');
+      setFormData({ name: '', email: '', message: '' });
+    } catch {
+      setErrorMsg('Failed to send message. Please try again.');
+    } finally {
+      setLoading(false);
+    }
+  };
+
   return (
     <div className="max-w-4xl mx-auto space-y-8 py-4">
       {/* Hero Header */}
@@ -42,23 +65,82 @@ export default function About() {
         </div>
       </div>
 
-      {/* Contact & Location Details */}
-      <div className="bg-white p-8 rounded-2xl border border-gray-100 shadow-sm space-y-6">
-        <h3 className="text-xl font-bold text-gray-900">Get in Touch</h3>
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 text-sm text-gray-600">
-          <div className="flex items-center gap-3">
-            <MapPin className="w-5 h-5 text-sky-600 shrink-0" />
-            <span>Nairobi, Kenya</span>
-          </div>
-          <div className="flex items-center gap-3">
-            <Phone className="w-5 h-5 text-emerald-600 shrink-0" />
-            <span>+254 700 000 000</span>
-          </div>
-          <div className="flex items-center gap-3">
-            <Mail className="w-5 h-5 text-sky-600 shrink-0" />
-            <span>support@devstore.com</span>
+      {/* Contact & Inquiry Section */}
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-8 bg-white p-8 rounded-2xl border border-gray-100 shadow-sm">
+        <div className="space-y-6">
+          <h3 className="text-xl font-bold text-gray-900">Get in Touch</h3>
+          <p className="text-sm text-gray-500 leading-relaxed">
+            Have questions regarding a product or need a custom order? Drop us a message or contact our support team directly.
+          </p>
+
+          <div className="space-y-4 text-sm text-gray-600">
+            <div className="flex items-center gap-3">
+              <MapPin className="w-5 h-5 text-sky-600 shrink-0" />
+              <span>Nairobi, Kenya</span>
+            </div>
+            <div className="flex items-center gap-3">
+              <Phone className="w-5 h-5 text-emerald-600 shrink-0" />
+              <span>+254 700 000 000</span>
+            </div>
+            <div className="flex items-center gap-3">
+              <Mail className="w-5 h-5 text-sky-600 shrink-0" />
+              <span>support@devstore.com</span>
+            </div>
           </div>
         </div>
+
+        {/* Inquiry Form */}
+        <form onSubmit={handleSubmit} className="space-y-4">
+          <h3 className="text-lg font-bold text-gray-900">Send an Inquiry</h3>
+          
+          <div>
+            <label className="block text-xs font-semibold text-gray-700 uppercase mb-1">Your Name</label>
+            <input
+              type="text"
+              required
+              value={formData.name}
+              onChange={(e) => setFormData({ ...formData, name: e.target.value })}
+              className="w-full px-3.5 py-2.5 rounded-lg border border-gray-300 focus:ring-2 focus:ring-sky-500 outline-none text-sm"
+              placeholder="Jane Doe"
+            />
+          </div>
+
+          <div>
+            <label className="block text-xs font-semibold text-gray-700 uppercase mb-1">Email Address</label>
+            <input
+              type="email"
+              required
+              value={formData.email}
+              onChange={(e) => setFormData({ ...formData, email: e.target.value })}
+              className="w-full px-3.5 py-2.5 rounded-lg border border-gray-300 focus:ring-2 focus:ring-sky-500 outline-none text-sm"
+              placeholder="jane@example.com"
+            />
+          </div>
+
+          <div>
+            <label className="block text-xs font-semibold text-gray-700 uppercase mb-1">Message</label>
+            <textarea
+              required
+              rows="4"
+              value={formData.message}
+              onChange={(e) => setFormData({ ...formData, message: e.target.value })}
+              className="w-full px-3.5 py-2.5 rounded-lg border border-gray-300 focus:ring-2 focus:ring-sky-500 outline-none text-sm resize-none"
+              placeholder="How can we help you?"
+            ></textarea>
+          </div>
+
+          <button
+            type="submit"
+            disabled={loading}
+            className="w-full bg-slate-900 hover:bg-slate-800 text-white font-semibold py-3 rounded-lg transition flex items-center justify-center gap-2 text-sm disabled:opacity-50"
+          >
+            <Send className="w-4 h-4" />
+            {loading ? 'Sending...' : 'Send Message'}
+          </button>
+
+          {successMsg && <p className="text-emerald-600 text-xs font-medium mt-2">{successMsg}</p>}
+          {errorMsg && <p className="text-red-500 text-xs font-medium mt-2">{errorMsg}</p>}
+        </form>
       </div>
     </div>
   );
