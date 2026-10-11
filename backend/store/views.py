@@ -6,8 +6,8 @@ from rest_framework import viewsets, status
 from rest_framework.decorators import api_view, permission_classes
 from rest_framework.permissions import AllowAny
 from rest_framework.response import Response
-from .models import Category, Product, Order, Transaction
-from .serializers import CategorySerializer, ProductSerializer, OrderSerializer
+from .models import Category, ContactInquiry, Product, Order, Transaction
+from .serializers import CategorySerializer, ContactInquirySerializer, ProductSerializer, OrderSerializer
 
 class CategoryViewSet(viewsets.ReadOnlyModelViewSet):
     queryset = Category.objects.all()
@@ -96,3 +96,8 @@ def mpesa_callback(request):
         pass
 
     return Response({"ResultCode": 0, "ResultDesc": "Accepted"})
+
+class ContactInquiryCreateView(generics.CreateApiView):
+    queryset = ContactInquiry.objects.all()
+    serializer_class = ContactInquirySerializer
+    permission_classes = [AllowAny]

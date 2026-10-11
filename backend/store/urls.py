@@ -1,6 +1,6 @@
 from django.urls import path, include
 from rest_framework.routers import DefaultRouter
-from .views import CategoryViewSet, ProductViewSet, OrderViewSet, initiate_stk_push, mpesa_callback
+from .views import CategoryViewSet, ContactInquiryCreateView, ProductViewSet, OrderViewSet, initiate_stk_push, mpesa_callback
 
 router = DefaultRouter()
 router.register(r'categories', CategoryViewSet)
@@ -11,4 +11,5 @@ urlpatterns = [
     path('', include(router.urls)),
     path('payments/stk-push/', initiate_stk_push),
     path('payments/mpesa/callback/', mpesa_callback),
+    path('contact/', ContactInquiryCreateView.as_view(), name='contact-inquiry'),
 ]

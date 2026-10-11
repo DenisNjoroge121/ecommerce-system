@@ -1,5 +1,5 @@
 from rest_framework import serializers
-from .models import Category, Product, Order, OrderItem
+from .models import Category, ContactInquiry, Product, Order, OrderItem
 
 class CategorySerializer(serializers.ModelSerializer):
     class Meta:
@@ -29,3 +29,8 @@ class OrderSerializer(serializers.ModelSerializer):
         for item in items_data:
             OrderItem.objects.create(order=order, **item)
         return order
+    
+class ContactInquirySerializer(serializers.ModelSerializer):
+    class Meta:
+        model = ContactInquiry
+        fields = '__all__'
