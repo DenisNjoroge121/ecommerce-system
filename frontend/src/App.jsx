@@ -1,14 +1,20 @@
 import { BrowserRouter as Router, Routes, Route, Link } from 'react-router-dom';
-import { ShoppingBag, Store, Info } from 'lucide-react';
+import { ShoppingBag, Store, Info, Shield, User, LogIn, LogOut } from 'lucide-react';
 import Home from './pages/Home';
 import ProductDetail from './pages/ProductDetail';
 import Checkout from './pages/Checkout';
 import About from './pages/About';
+import Login from './pages/Login';
+import Register from './pages/Register';
+import AdminDashboard from './pages/AdminDashboard';
 import { useCartStore } from './store/useCartStore';
+import { useAuthStore } from './store/useAuthStore';
 
 export default function App() {
   const cart = useCartStore((state) => state.cart);
   const cartItemCount = cart.reduce((total, item) => total + item.quantity, 0);
+
+  const { user, isAuthenticated, isAdmin, logout } = useAuthStore();
 
   return (
     <Router>
@@ -21,23 +27,62 @@ export default function App() {
               <span>DevStore</span>
             </Link>
 
-            <nav className="flex items-center gap-6">
-              <Link to="/" className="text-sm font-medium hover:text-sky-400 transition">
+            <nav className="flex items-center gap-3 sm:gap-6">
+              <Link to="/" className="text-xs sm:text-sm font-medium hover:text-sky-400 transition">
                 Products
               </Link>
-              <Link to="/about" className="flex items-center gap-1 text-sm font-medium hover:text-sky-400 transition">
-                <Info className="w-4 h-4" />
+              <Link to="/about" className="flex items-center gap-1 text-xs sm:text-sm font-medium hover:text-sky-400 transition">
+                <Info className="w-3.5 h-3.5" />
                 <span>About</span>
               </Link>
-              <Link to="/checkout" className="relative flex items-center gap-1.5 bg-slate-800 hover:bg-slate-700 px-3.5 py-1.5 rounded-full border border-slate-700 transition">
+
+              {/* Admin Panel shortcut */}
+              {isAdmin && (
+                <Link
+                  to="/admin-dashboard"
+                  className="flex items-center gap-1.5 text-xs font-semibold bg-sky-500/10 text-sky-400 border border-sky-400/30 px-2.5 py-1 rounded-full hover:bg-sky-500/20 transition"
+                >
+                  <Shield className="w-3.5 h-3.5" />
+                  <span>Admin Panel</span>
+                </Link>
+              )}
+
+              {/* Cart Button */}
+              <Link to="/checkout" className="relative flex items-center gap-1.5 bg-slate-800 hover:bg-slate-700 px-3 py-1.5 rounded-full border border-slate-700 transition">
                 <ShoppingBag className="w-4 h-4 text-sky-400" />
-                <span className="text-sm font-semibold">Cart</span>
+                <span className="text-xs sm:text-sm font-semibold">Cart</span>
                 {cartItemCount > 0 && (
-                  <span className="ml-1 bg-sky-500 text-slate-950 font-bold text-xs px-2 py-0.5 rounded-full">
+                  <span className="ml-0.5 bg-sky-500 text-slate-950 font-bold text-[10px] px-1.5 py-0.2 rounded-full">
                     {cartItemCount}
                   </span>
                 )}
               </Link>
+
+              {/* User Account Controls */}
+              {isAuthenticated ? (
+                <div className="flex items-center gap-2 border-l border-slate-800 pl-3">
+                  <span className="hidden md:flex items-center gap-1 text-xs text-slate-300">
+                    <User className="w-3.5 h-3.5 text-sky-400" />
+                    <span>{user?.username}</span>
+                  </span>
+                  <button
+                    type="button"
+                    onClick={logout}
+                    className="p-1.5 text-slate-400 hover:text-white rounded-lg transition"
+                    title="Sign Out"
+                  >
+                    <LogOut className="w-4 h-4" />
+                  </button>
+                </div>
+              ) : (
+                <Link
+                  to="/login"
+                  className="flex items-center gap-1 text-xs sm:text-sm font-semibold text-slate-200 hover:text-white bg-slate-800 hover:bg-slate-700 px-3 py-1.5 rounded-xl border border-slate-700 transition"
+                >
+                  <LogIn className="w-3.5 h-3.5 text-sky-400" />
+                  <span>Sign In</span>
+                </Link>
+              )}
             </nav>
           </div>
         </header>
@@ -49,6 +94,9 @@ export default function App() {
             <Route path="/product/:id" element={<ProductDetail />} />
             <Route path="/about" element={<About />} />
             <Route path="/checkout" element={<Checkout />} />
+            <Route path="/login" element={<Login />} />
+            <Route path="/register" element={<Register />} />
+            <Route path="/admin-dashboard" element={<AdminDashboard />} />
           </Routes>
         </main>
       </div>

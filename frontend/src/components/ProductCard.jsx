@@ -1,19 +1,36 @@
 import { useState } from 'react';
-import { Link } from 'react-router-dom';
+import { Link, useNavigate, useLocation } from 'react-router-dom';
 import { ShoppingCart, Check, Eye } from 'lucide-react';
 import { useCartStore } from '../store/useCartStore';
+import { useAuthStore } from '../store/useAuthStore';
 import WhatsAppButton from './WhatsAppButton';
 
 export default function ProductCard({ product }) {
   const [isAdded, setIsAdded] = useState(false);
   const [imageError, setImageError] = useState(false);
   const addToCart = useCartStore((state) => state.addToCart);
+  const isAuthenticated = useAuthStore((state) => state.isAuthenticated);
+  const navigate = useNavigate();
+  const location = useLocation();
 
   if (!product) return null;
 
   const handleAddToCart = (e) => {
     e.preventDefault();
     e.stopPropagation();
+
+    // Check if customer is authenticated; if not, redirect to sign-in / sign-up page
+    if (!isAuthenticated) {
+      navigate('/login', {
+        state: {
+          from: location.pathname,
+          attemptedProduct: product,
+          message: 'Please sign in or create an account to add items to your cart.',
+        },
+      });
+      return;
+    }
+
     addToCart(product);
     setIsAdded(true);
     setTimeout(() => setIsAdded(false), 1500);
@@ -78,6 +95,11 @@ export default function ProductCard({ product }) {
       {/* Product Info */}
       <div className="p-5 flex-1 flex flex-col justify-between space-y-4">
         <div>
+          {product.category_name && (
+            <span className="text-[11px] font-semibold uppercase tracking-wider text-sky-600 mb-1 block">
+              {product.category_name}
+            </span>
+          )}
           <Link to={`/product/${product.id}`} className="block group-hover:text-sky-600 transition">
             <h3 className="font-semibold text-gray-900 line-clamp-1 text-base">
               {product.title}
