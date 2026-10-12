@@ -7,8 +7,8 @@ export const useCartStore = create(
             cart: [],
             addToCart: (product) => {
                 const currentCart = get().cart;
-                const existing = currentCart.findIndex(item => item.id === product.id);
-                if (existing ) {
+                const existing = currentCart.find((item) => item.id === product.id);
+                if (existing) {
                     set({
                         cart: currentCart.map((i) => i.id === product.id ? {...i, quantity: i.quantity + 1} : i),
                     });
