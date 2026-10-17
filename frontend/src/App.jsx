@@ -24,7 +24,7 @@ export default function App() {
           <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 h-16 flex items-center justify-between">
             <Link to="/" className="flex items-center gap-2 font-bold text-xl tracking-tight hover:text-gray-300 transition">
               <Store className="w-6 h-6 text-sky-400" />
-              <span>DevStore</span>
+              <span>Belo.Creations</span>
             </Link>
 
             <nav className="flex items-center gap-3 sm:gap-6">
