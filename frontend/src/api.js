@@ -2,7 +2,7 @@ import axios from 'axios';
 import { useAuthStore } from './store/useAuthStore';
 
 const API = axios.create({
-  baseURL: 'http://127.0.0.1:8000/api/',
+  baseURL: 'https://ecommerce-system-21y5.onrender.com/api/',
 });
 
 // Interceptor to add auth token if present
