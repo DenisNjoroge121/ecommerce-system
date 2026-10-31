@@ -1,6 +1,7 @@
 import uuid
 import requests
 import base64
+import logging
 from decimal import Decimal
 from datetime import datetime, timedelta
 from django.conf import settings
@@ -148,6 +149,8 @@ class OrderViewSet(viewsets.ModelViewSet):
     def partial_update(self, request, *args, **kwargs):
         return super().partial_update(request, *args, **kwargs)
 
+logger = logging.getLogger(__name__)
+
 # -------------------------------------------------------------
 # DARAJA M-PESA HELPER FUNCTIONS
 # -------------------------------------------------------------
@@ -157,13 +160,19 @@ def get_mpesa_access_token():
     consumer_secret = getattr(settings, 'MPESA_CONSUMER_SECRET', None)
     if not consumer_key or not consumer_secret or consumer_key.startswith('YOUR_'):
         return None
-    api_url = "https://sandbox.safaricom.co.ke/oauth/v1/generate?grant_type=client_credentials"
+    mpesa_env = getattr(settings, 'MPESA_ENV', 'sandbox').lower()
+    api_url = (
+        "https://api.safaricom.co.ke/oauth/v1/generate?grant_type=client_credentials"
+        if mpesa_env == 'production'
+        else "https://sandbox.safaricom.co.ke/oauth/v1/generate?grant_type=client_credentials"
+    )
     try:
         res = requests.get(api_url, auth=(consumer_key, consumer_secret), timeout=10)
         if res.status_code == 200:
             return res.json().get('access_token')
-    except Exception:
-        pass
+        logger.error(f"Failed to fetch M-Pesa token. HTTP {res.status_code}: {res.text}")
+    except Exception as e:
+        logger.error(f"Exception fetching M-Pesa access token: {e}")
     return None
 
 def normalize_phone(phone_number):
@@ -177,7 +186,7 @@ def normalize_phone(phone_number):
     return clean
 
 # -------------------------------------------------------------
-# PAYMENT VIEWS: STK PUSH, QUERY STATUS, SIMULATION, RECORDING
+# PAYMENT VIEWS: STK PUSH, QUERY STATUS, REAL CONFIRMATION, RECORDING
 # -------------------------------------------------------------
 
 @api_view(['POST'])
@@ -221,6 +230,7 @@ def initiate_stk_push(request):
     shortcode = getattr(settings, 'MPESA_SHORTCODE', None) or '174379'
     passkey = getattr(settings, 'MPESA_PASSKEY', None)
     callback_url = getattr(settings, 'MPESA_CALLBACK_URL', 'https://example.com/callback')
+    mpesa_env = getattr(settings, 'MPESA_ENV', 'sandbox').lower()
 
     # Try live Safaricom STK Push if Daraja credentials are configured
     if access_token and shortcode and passkey and not passkey.startswith('YOUR_'):
@@ -244,11 +254,16 @@ def initiate_stk_push(request):
         }
 
         try:
+            stk_url = (
+                "https://api.safaricom.co.ke/mpesa/stkpush/v1/processrequest"
+                if mpesa_env == 'production'
+                else "https://sandbox.safaricom.co.ke/mpesa/stkpush/v1/processrequest"
+            )
             res = requests.post(
-                "https://sandbox.safaricom.co.ke/mpesa/stkpush/v1/processrequest",
+                stk_url,
                 json=payload,
                 headers=headers,
-                timeout=12
+                timeout=15
             )
             res_data = res.json()
 
@@ -262,7 +277,8 @@ def initiate_stk_push(request):
                         checkout_request_id=checkout_id,
                         amount=Decimal(str(amount_int)),
                         phone_number=phone_number,
-                        is_successful=False
+                        is_successful=False,
+                        result_desc=res_data.get('CustomerMessage', 'STK push dispatched to phone.')
                     )
                 return Response({
                     "status": "STK Push Initiated",
@@ -273,11 +289,16 @@ def initiate_stk_push(request):
                     "order_id": str(order.order_id) if order else None,
                     "CustomerMessage": res_data.get('CustomerMessage', 'Please check your phone and enter your M-Pesa PIN.')
                 })
-        except Exception:
-            pass
+            else:
+                error_msg = res_data.get('errorMessage') or res_data.get('ResponseDescription') or 'Safaricom STK push failed to initiate.'
+                logger.warning(f"Safaricom STK push rejected: {res_data}")
+                return Response({"error": error_msg, "details": res_data}, status=status.HTTP_400_BAD_REQUEST)
+        except Exception as e:
+            logger.error(f"Exception during STK push request: {e}")
+            return Response({"error": f"Failed to contact Safaricom Daraja API: {str(e)}"}, status=status.HTTP_502_BAD_GATEWAY)
 
-    # Sandbox / Local dev simulation fallback
-    simulated_checkout_id = f"ws_CO_{datetime.now().strftime('%d%m%Y%H%M%S')}_{uuid.uuid4().hex[:6]}"
+    # Sandbox / Local dev fallback when credentials are not configured
+    simulated_checkout_id = f"DEV_CO_{datetime.now().strftime('%d%m%Y%H%M%S')}_{uuid.uuid4().hex[:6]}"
     if order:
         Transaction.objects.create(
             order=order,
@@ -286,7 +307,8 @@ def initiate_stk_push(request):
             checkout_request_id=simulated_checkout_id,
             amount=Decimal(str(amount_int)),
             phone_number=phone_number,
-            is_successful=False
+            is_successful=False,
+            result_desc="Awaiting payment confirmation."
         )
 
     return Response({
@@ -304,7 +326,7 @@ def initiate_stk_push(request):
 def check_payment_status(request):
     """
     Polled by the customer's web page while waiting for M-Pesa PIN entry.
-    Checks whether the transaction has completed (via webhook, Daraja query, or demo confirmation).
+    Checks whether the transaction has completed (via webhook callback, Daraja query, or confirmed transaction ID).
     """
     checkout_id = request.query_params.get('checkout_id')
     order_id = request.query_params.get('order_id')
@@ -320,12 +342,13 @@ def check_payment_status(request):
 
     order = transaction.order
 
-    # If already marked successful
+    # 1. If already marked successful (via webhook callback or manual confirm with transaction ID)
     if transaction.is_successful:
         return Response({
             "is_complete": True,
             "status": "completed",
             "receipt_number": transaction.receipt_number,
+            "transaction_id": transaction.receipt_number,
             "amount_paid": float(transaction.amount),
             "payment_type": transaction.payment_type,
             "phone_number": transaction.phone_number or order.customer_phone,
@@ -334,15 +357,17 @@ def check_payment_status(request):
             "total_amount": float(order.total_amount),
             "deposit_amount": float(order.deposit_amount),
             "balance_due": float(order.balance_due),
-            "timestamp": transaction.created_at
+            "timestamp": transaction.created_at,
+            "message": "Payment verified and complete."
         })
 
-    # If not yet successful, check with Safaricom Daraja STK Push Query API if live
+    # 2. Query Safaricom Daraja STK Push Query API if credentials and checkout_id exist
     access_token = get_mpesa_access_token()
     shortcode = getattr(settings, 'MPESA_SHORTCODE', None)
     passkey = getattr(settings, 'MPESA_PASSKEY', None)
+    mpesa_env = getattr(settings, 'MPESA_ENV', 'sandbox').lower()
 
-    if access_token and shortcode and passkey and transaction.checkout_request_id and not transaction.checkout_request_id.startswith('ws_CO_'):
+    if access_token and shortcode and passkey and transaction.checkout_request_id and not transaction.checkout_request_id.startswith('DEV_CO_'):
         timestamp = datetime.now().strftime('%Y%m%d%H%M%S')
         password_str = f"{shortcode}{passkey}{timestamp}"
         password = base64.b64encode(password_str.encode()).decode('utf-8')
@@ -355,59 +380,99 @@ def check_payment_status(request):
             "CheckoutRequestID": transaction.checkout_request_id
         }
 
+        query_url = (
+            "https://api.safaricom.co.ke/mpesa/stkpushquery/v1/query"
+            if mpesa_env == 'production'
+            else "https://sandbox.safaricom.co.ke/mpesa/stkpushquery/v1/query"
+        )
+
         try:
             res = requests.post(
-                "https://sandbox.safaricom.co.ke/mpesa/stkpushquery/v1/query",
+                query_url,
                 json=payload,
                 headers=headers,
-                timeout=8
+                timeout=10
             )
-            data = res.json()
-            result_code = data.get('ResultCode')
 
-            if result_code == "0" or result_code == 0:
-                receipt = f"REC-MPESA-{uuid.uuid4().hex[:7].upper()}"
-                transaction.is_successful = True
-                transaction.receipt_number = receipt
-                transaction.result_desc = data.get('ResultDesc', 'Payment verified successfully.')
-                transaction.save()
+            if res.status_code == 200:
+                data = res.json()
+                result_code = data.get('ResultCode')
 
-                # Update order financial balance
-                order.deposit_amount = (order.deposit_amount or Decimal('0.00')) + transaction.amount
-                order.balance_due = max(Decimal('0.00'), order.total_amount - order.deposit_amount)
-                if order.balance_due <= Decimal('0.00'):
-                    order.status = 'paid'
-                else:
-                    order.status = 'partially_paid'
-                order.save()
+                if result_code == "0" or result_code == 0:
+                    # Transaction successfully completed by customer in Daraja!
+                    # If callback already gave receipt_number, preserve it; otherwise check data or checkout ID
+                    receipt = transaction.receipt_number or data.get('MpesaReceiptNumber') or transaction.checkout_request_id
+                    transaction.is_successful = True
+                    transaction.receipt_number = receipt
+                    transaction.result_desc = data.get('ResultDesc', 'Payment verified successfully by Safaricom Daraja.')
+                    transaction.save()
 
-                return Response({
-                    "is_complete": True,
-                    "status": "completed",
-                    "receipt_number": transaction.receipt_number,
-                    "amount_paid": float(transaction.amount),
-                    "payment_type": transaction.payment_type,
-                    "phone_number": transaction.phone_number or order.customer_phone,
-                    "order_status": order.status,
-                    "order_id": str(order.order_id),
-                    "total_amount": float(order.total_amount),
-                    "deposit_amount": float(order.deposit_amount),
-                    "balance_due": float(order.balance_due),
-                    "timestamp": transaction.created_at
-                })
-            elif result_code and str(result_code) not in ["0", "1032"]:
-                # Failed or rejected PIN
-                transaction.result_desc = data.get('ResultDesc', 'PIN Entry Failed')
-                transaction.save()
+                    # Update order financial balance
+                    order.deposit_amount = (order.deposit_amount or Decimal('0.00')) + transaction.amount
+                    order.balance_due = max(Decimal('0.00'), order.total_amount - order.deposit_amount)
+                    if order.balance_due <= Decimal('0.00'):
+                        order.status = 'paid'
+                    else:
+                        order.status = 'partially_paid'
+                    order.save()
+
+                    return Response({
+                        "is_complete": True,
+                        "status": "completed",
+                        "receipt_number": transaction.receipt_number,
+                        "transaction_id": transaction.receipt_number,
+                        "amount_paid": float(transaction.amount),
+                        "payment_type": transaction.payment_type,
+                        "phone_number": transaction.phone_number or order.customer_phone,
+                        "order_status": order.status,
+                        "order_id": str(order.order_id),
+                        "total_amount": float(order.total_amount),
+                        "deposit_amount": float(order.deposit_amount),
+                        "balance_due": float(order.balance_due),
+                        "timestamp": transaction.created_at,
+                        "message": "Payment confirmed and verified via M-Pesa Daraja!"
+                    })
+                elif result_code in ["1032", 1032]:
+                    # Handset cancellation
+                    transaction.result_desc = "Request cancelled by user."
+                    transaction.save()
+                    return Response({
+                        "is_complete": False,
+                        "failed": True,
+                        "message": "The M-Pesa transaction was cancelled on your phone."
+                    })
+                elif result_code in ["1037", 1037]:
+                    # Timeout waiting for PIN
+                    transaction.result_desc = "M-Pesa request timed out."
+                    transaction.save()
+                    return Response({
+                        "is_complete": False,
+                        "failed": True,
+                        "message": "M-Pesa request timed out waiting for PIN. Please retry."
+                    })
+                elif result_code is not None and str(result_code) != "":
+                    # Failed transaction (wrong PIN, insufficient funds, etc.)
+                    transaction.result_desc = data.get('ResultDesc', 'M-Pesa transaction failed.')
+                    transaction.save()
+                    return Response({
+                        "is_complete": False,
+                        "failed": True,
+                        "message": data.get('ResultDesc', 'Transaction could not be completed.')
+                    })
+            elif res.status_code == 429:
+                # Spike arrest rate limit in Daraja sandbox - treat as still waiting for PIN
                 return Response({
                     "is_complete": False,
-                    "failed": True,
-                    "message": data.get('ResultDesc', 'Transaction could not be completed.')
+                    "pending": True,
+                    "checkout_id": transaction.checkout_request_id,
+                    "order_id": str(order.order_id),
+                    "amount": float(transaction.amount),
+                    "message": "Checking Safaricom M-Pesa network..."
                 })
-        except Exception:
-            pass
+        except Exception as e:
+            logger.warning(f"Exception checking Daraja payment status: {e}")
 
-    # Otherwise still pending PIN input
+    # Still waiting for PIN input
     return Response({
         "is_complete": False,
         "pending": True,
@@ -419,14 +484,19 @@ def check_payment_status(request):
 
 @api_view(['POST'])
 @permission_classes([AllowAny])
-def confirm_simulated_payment(request):
+def confirm_payment(request):
     """
-    Allows the customer (or admin) to simulate entering the M-Pesa PIN on their phone
-    in sandbox / local development mode, immediately confirming the transaction.
+    Confirms an M-Pesa payment based on transaction completion and records the transaction
+    together with the Daraja M-Pesa Transaction ID (receipt number).
     """
     checkout_id = request.data.get('checkout_id')
     order_id = request.data.get('order_id')
-    receipt = request.data.get('receipt_number') or f"REC-MPESA-{uuid.uuid4().hex[:7].upper()}"
+    raw_tx_id = (
+        request.data.get('transaction_id') or
+        request.data.get('receipt_number') or
+        request.data.get('mpesa_receipt_number') or
+        request.data.get('mpesa_code')
+    )
 
     transaction = None
     if checkout_id:
@@ -435,12 +505,88 @@ def confirm_simulated_payment(request):
         transaction = Transaction.objects.filter(order__order_id=order_id).order_by('-created_at').first()
 
     if not transaction:
-        return Response({"error": "No pending transaction found to confirm"}, status=status.HTTP_404_NOT_FOUND)
+        return Response({"error": "No pending payment transaction found to confirm."}, status=status.HTTP_404_NOT_FOUND)
 
     order = transaction.order
+
+    # If transaction is already successful, return completed details
+    if transaction.is_successful:
+        return Response({
+            "status": "success",
+            "is_complete": True,
+            "message": "Payment has already been confirmed and recorded.",
+            "receipt_number": transaction.receipt_number,
+            "transaction_id": transaction.receipt_number,
+            "amount_paid": float(transaction.amount),
+            "deposit_amount": float(order.deposit_amount),
+            "balance_due": float(order.balance_due),
+            "order_status": order.status,
+            "order": OrderSerializer(order).data
+        }, status=status.HTTP_200_OK)
+
+    tx_id = None
+    if raw_tx_id:
+        tx_id = str(raw_tx_id).strip().upper()
+        # M-Pesa transaction IDs are uppercase alphanumeric (e.g. NLJ7RT61SV or SIK8123456)
+        if len(tx_id) < 6 or not tx_id.isalnum():
+            return Response({
+                "error": "Invalid M-Pesa Transaction ID. Expected an alphanumeric code (e.g. NLJ7RT61SV) from your Safaricom SMS."
+            }, status=status.HTTP_400_BAD_REQUEST)
+
+        # Check for duplicate reuse across other completed orders
+        existing = Transaction.objects.filter(
+            receipt_number=tx_id,
+            is_successful=True
+        ).exclude(pk=transaction.pk).first()
+        if existing:
+            return Response({
+                "error": f"M-Pesa Transaction ID '{tx_id}' has already been recorded for another order."
+            }, status=status.HTTP_400_BAD_REQUEST)
+
+    # If tx_id wasn't provided, try querying Daraja or checking existing callback receipt
+    if not tx_id:
+        if transaction.receipt_number:
+            tx_id = transaction.receipt_number
+        else:
+            access_token = get_mpesa_access_token()
+            shortcode = getattr(settings, 'MPESA_SHORTCODE', None)
+            passkey = getattr(settings, 'MPESA_PASSKEY', None)
+            mpesa_env = getattr(settings, 'MPESA_ENV', 'sandbox').lower()
+
+            if access_token and shortcode and passkey and transaction.checkout_request_id and not transaction.checkout_request_id.startswith('DEV_CO_'):
+                timestamp = datetime.now().strftime('%Y%m%d%H%M%S')
+                password_str = f"{shortcode}{passkey}{timestamp}"
+                password = base64.b64encode(password_str.encode()).decode('utf-8')
+                headers = {"Authorization": f"Bearer {access_token}"}
+                payload = {
+                    "BusinessShortCode": shortcode,
+                    "Password": password,
+                    "Timestamp": timestamp,
+                    "CheckoutRequestID": transaction.checkout_request_id
+                }
+                query_url = (
+                    "https://api.safaricom.co.ke/mpesa/stkpushquery/v1/query"
+                    if mpesa_env == 'production'
+                    else "https://sandbox.safaricom.co.ke/mpesa/stkpushquery/v1/query"
+                )
+                try:
+                    res = requests.post(query_url, json=payload, headers=headers, timeout=10)
+                    if res.status_code == 200:
+                        data = res.json()
+                        if data.get('ResultCode') in [0, "0"]:
+                            tx_id = data.get('MpesaReceiptNumber') or transaction.checkout_request_id
+                except Exception as e:
+                    logger.warning(f"Error querying Daraja during confirmation: {e}")
+
+    if not tx_id:
+        return Response({
+            "error": "M-Pesa Transaction ID is required to confirm payment. Please enter the transaction ID from your Safaricom SMS."
+        }, status=status.HTTP_400_BAD_REQUEST)
+
+    # Record the transaction together with the Daraja M-Pesa ID
     transaction.is_successful = True
-    transaction.receipt_number = receipt
-    transaction.result_desc = "The service request is processed successfully. PIN verified."
+    transaction.receipt_number = tx_id
+    transaction.result_desc = f"Payment confirmed with M-Pesa Daraja Transaction ID: {tx_id}"
     transaction.save()
 
     # Update order financial balance
@@ -454,14 +600,19 @@ def confirm_simulated_payment(request):
 
     return Response({
         "status": "success",
-        "message": "M-Pesa PIN verified. Transaction marked complete!",
+        "is_complete": True,
+        "message": f"Payment complete! Recorded with M-Pesa Daraja Transaction ID {tx_id}.",
         "receipt_number": transaction.receipt_number,
+        "transaction_id": transaction.receipt_number,
         "amount_paid": float(transaction.amount),
         "deposit_amount": float(order.deposit_amount),
         "balance_due": float(order.balance_due),
         "order_status": order.status,
         "order": OrderSerializer(order).data
     }, status=status.HTTP_200_OK)
+
+# Alias for backwards compatibility
+confirm_simulated_payment = confirm_payment
 
 @api_view(['POST'])
 @permission_classes([AllowAny])

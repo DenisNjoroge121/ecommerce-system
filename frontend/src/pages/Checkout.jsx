@@ -6,7 +6,7 @@ import API from '../api';
 import {
   ShoppingBag, ArrowLeft, Trash2, Smartphone, CreditCard,
   CheckCircle2, AlertCircle, Loader2, ShieldCheck, Printer,
-  Clock, Zap, Check
+  Clock, Zap, RefreshCw
 } from 'lucide-react';
 
 export default function Checkout() {
@@ -33,11 +33,15 @@ export default function Checkout() {
   const [submitting, setSubmitting] = useState(false);
   const [errorMsg, setErrorMsg] = useState('');
 
-  // Waiting for M-Pesa PIN state
+  // Waiting for M-Pesa PIN & Daraja confirmation state
   const [waitingForPin, setWaitingForPin] = useState(false);
   const [stkData, setStkData] = useState(null);
   const [pollSeconds, setPollSeconds] = useState(0);
-  const [simulatingPin, setSimulatingPin] = useState(false);
+  const [mpesaTxId, setMpesaTxId] = useState('');
+  const [confirmingPayment, setConfirmingPayment] = useState(false);
+  const [checkingDaraja, setCheckingDaraja] = useState(false);
+  const [darajaStatusMsg, setDarajaStatusMsg] = useState('');
+  const [confirmError, setConfirmError] = useState('');
 
   // Final successful receipt state
   const [completedPayment, setCompletedPayment] = useState(null);
@@ -98,7 +102,7 @@ export default function Checkout() {
   };
 
   // -------------------------------------------------------------
-  // REAL-TIME POLLING FOR M-PESA PIN STATUS
+  // REAL-TIME POLLING FOR M-PESA DARAJA PIN STATUS
   // -------------------------------------------------------------
   useEffect(() => {
     if (!waitingForPin || !stkData?.checkout_id) return;
@@ -119,7 +123,7 @@ export default function Checkout() {
           setWaitingForPin(false);
           setCompletedPayment({
             method: 'mpesa',
-            receipt_number: res.data.receipt_number,
+            receipt_number: res.data.receipt_number || res.data.transaction_id,
             amount_paid: res.data.amount_paid,
             deposit_amount: res.data.deposit_amount,
             balance_due: res.data.balance_due,
@@ -136,11 +140,13 @@ export default function Checkout() {
           if (timerIntervalRef.current) clearInterval(timerIntervalRef.current);
           setWaitingForPin(false);
           setErrorMsg(res.data.message || 'M-Pesa transaction was cancelled or timed out.');
+        } else if (res.data.message) {
+          setDarajaStatusMsg(res.data.message);
         }
       } catch (err) {
         console.warn('Status poll error:', err);
       }
-    }, 2500);
+    }, 4000);
 
     return () => {
       if (pollIntervalRef.current) clearInterval(pollIntervalRef.current);
@@ -149,15 +155,74 @@ export default function Checkout() {
   }, [waitingForPin, stkData, clearCart]);
 
   // -------------------------------------------------------------
-  // SIMULATE ENTERING PIN (DEMO / TEST / LOCAL MODE)
+  // MANUAL CHECK FOR LIVE DARAJA STATUS
   // -------------------------------------------------------------
-  const handleSimulatePin = async () => {
+  const handleCheckDarajaStatus = async () => {
     if (!stkData?.checkout_id) return;
-    setSimulatingPin(true);
+    setCheckingDaraja(true);
+    setConfirmError('');
     try {
-      const res = await API.post('payments/confirm-simulated/', {
+      const res = await API.get('payments/status/', {
+        params: { checkout_id: stkData.checkout_id, order_id: stkData.order_id },
+      });
+
+      if (res.data.is_complete) {
+        if (pollIntervalRef.current) clearInterval(pollIntervalRef.current);
+        if (timerIntervalRef.current) clearInterval(timerIntervalRef.current);
+        setWaitingForPin(false);
+        setCompletedPayment({
+          method: 'mpesa',
+          receipt_number: res.data.receipt_number || res.data.transaction_id,
+          amount_paid: res.data.amount_paid,
+          deposit_amount: res.data.deposit_amount,
+          balance_due: res.data.balance_due,
+          total_amount: res.data.total_amount,
+          order_id: res.data.order_id,
+          order_status: res.data.order_status,
+          phone: stkData.phone,
+          items: stkData.itemsSnapshot || [],
+          payment_type: res.data.payment_type,
+        });
+        clearCart();
+      } else if (res.data.failed) {
+        setConfirmError(res.data.message || 'M-Pesa transaction was cancelled or timed out.');
+      } else {
+        setDarajaStatusMsg(res.data.message || 'Waiting for PIN verification on phone...');
+      }
+    } catch (err) {
+      console.warn('Manual status check error:', err);
+      setConfirmError('Unable to check Safaricom Daraja status. Please try again.');
+    } finally {
+      setCheckingDaraja(false);
+    }
+  };
+
+  // -------------------------------------------------------------
+  // CONFIRM PAYMENT WITH DARAJA M-PESA TRANSACTION ID
+  // -------------------------------------------------------------
+  const handleConfirmPayment = async (e) => {
+    if (e) e.preventDefault();
+    if (!stkData?.checkout_id) return;
+
+    const trimmedId = mpesaTxId.trim().toUpperCase();
+    if (!trimmedId) {
+      setConfirmError('Please enter the M-Pesa Transaction ID from your Safaricom SMS (e.g. NLJ7RT61SV).');
+      return;
+    }
+
+    if (trimmedId.length < 6) {
+      setConfirmError('M-Pesa Transaction ID must be at least 6 characters (e.g. NLJ7RT61SV).');
+      return;
+    }
+
+    setConfirmingPayment(true);
+    setConfirmError('');
+
+    try {
+      const res = await API.post('payments/confirm/', {
         checkout_id: stkData.checkout_id,
         order_id: stkData.order_id,
+        transaction_id: trimmedId,
       });
 
       if (pollIntervalRef.current) clearInterval(pollIntervalRef.current);
@@ -165,7 +230,7 @@ export default function Checkout() {
       setWaitingForPin(false);
       setCompletedPayment({
         method: 'mpesa',
-        receipt_number: res.data.receipt_number,
+        receipt_number: res.data.receipt_number || trimmedId,
         amount_paid: res.data.amount_paid,
         deposit_amount: res.data.deposit_amount,
         balance_due: res.data.balance_due,
@@ -178,10 +243,14 @@ export default function Checkout() {
       });
       clearCart();
     } catch (err) {
-      console.error('Simulation error:', err);
-      setErrorMsg('Failed to simulate PIN entry. Please retry.');
+      console.error('Confirmation error:', err);
+      setConfirmError(
+        err.response?.data?.error ||
+        err.response?.data?.message ||
+        'Failed to confirm M-Pesa payment. Please verify the Transaction ID.'
+      );
     } finally {
-      setSimulatingPin(false);
+      setConfirmingPayment(false);
     }
   };
 
@@ -357,29 +426,83 @@ export default function Checkout() {
             </ol>
           </div>
 
-          <div className="pt-2 border-t border-gray-100 space-y-2 text-center">
-            <button
-              type="button"
-              onClick={handleSimulatePin}
-              disabled={simulatingPin}
-              className="w-full py-3 bg-emerald-600 hover:bg-emerald-700 disabled:bg-emerald-400 text-white font-bold rounded-xl text-xs transition shadow-sm flex items-center justify-center gap-2"
-            >
-              {simulatingPin ? (
-                <>
-                  <Loader2 className="w-4 h-4 animate-spin" />
-                  <span>Verifying PIN with Safaricom...</span>
-                </>
-              ) : (
-                <>
-                  <Check className="w-4 h-4" />
-                  <span>Simulate Entering PIN &amp; Confirm (Test Demo)</span>
-                </>
-              )}
-            </button>
-            <p className="text-[10px] text-gray-400">
-              In test / local development environments without an active webhook, click the button above to simulate entering your PIN on your phone.
+          {/* CONFIRM PAYMENT WITH DARAJA M-PESA TRANSACTION ID */}
+          <form onSubmit={handleConfirmPayment} className="space-y-3 pt-3 border-t border-gray-100">
+            <div className="space-y-1.5">
+              <label className="block text-xs font-bold text-gray-800 flex items-center justify-between">
+                <span>Confirm with M-Pesa Transaction ID</span>
+                <span className="text-[10px] text-emerald-600 font-semibold uppercase tracking-wider">Safaricom Daraja</span>
+              </label>
+              <p className="text-[11px] text-gray-500 leading-snug">
+                Once you enter your M-Pesa PIN, Safaricom sends an SMS confirmation. Enter the Transaction ID (e.g. <strong className="font-mono text-emerald-700">NLJ7RT61SV</strong>) below to record and complete your order:
+              </p>
+              <div className="relative">
+                <input
+                  type="text"
+                  value={mpesaTxId}
+                  onChange={(e) => {
+                    setMpesaTxId(e.target.value.toUpperCase());
+                    setConfirmError('');
+                  }}
+                  placeholder="e.g. NLJ7RT61SV"
+                  maxLength={25}
+                  className="w-full px-4 py-3 rounded-xl border border-gray-200 focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500 font-mono text-sm tracking-wider uppercase font-bold text-gray-900 bg-gray-50/50 placeholder:font-normal placeholder:tracking-normal placeholder:text-gray-400"
+                />
+              </div>
+            </div>
+
+            {confirmError && (
+              <div className="p-3 bg-red-50 border border-red-200 text-red-700 rounded-xl text-xs flex items-center gap-2">
+                <AlertCircle className="w-4 h-4 shrink-0" />
+                <span>{confirmError}</span>
+              </div>
+            )}
+
+            {darajaStatusMsg && !confirmError && (
+              <div className="p-2.5 bg-sky-50 border border-sky-200 text-sky-800 rounded-xl text-xs flex items-center gap-2">
+                <Clock className="w-3.5 h-3.5 animate-spin shrink-0 text-sky-600" />
+                <span>{darajaStatusMsg}</span>
+              </div>
+            )}
+
+            <div className="flex flex-col sm:flex-row gap-2 pt-1">
+              <button
+                type="submit"
+                disabled={confirmingPayment}
+                className="flex-1 py-3 bg-emerald-600 hover:bg-emerald-700 disabled:bg-emerald-400 text-white font-bold rounded-xl text-xs transition shadow-sm flex items-center justify-center gap-2"
+              >
+                {confirmingPayment ? (
+                  <>
+                    <Loader2 className="w-4 h-4 animate-spin" />
+                    <span>Verifying &amp; Recording Transaction...</span>
+                  </>
+                ) : (
+                  <>
+                    <CheckCircle2 className="w-4 h-4" />
+                    <span>Confirm Payment with M-Pesa ID</span>
+                  </>
+                )}
+              </button>
+
+              <button
+                type="button"
+                onClick={handleCheckDarajaStatus}
+                disabled={checkingDaraja}
+                className="py-3 px-4 bg-gray-100 hover:bg-gray-200 disabled:bg-gray-50 text-gray-700 font-semibold rounded-xl text-xs transition flex items-center justify-center gap-1.5"
+                title="Query Safaricom Daraja API for live transaction status"
+              >
+                {checkingDaraja ? (
+                  <Loader2 className="w-4 h-4 animate-spin text-gray-600" />
+                ) : (
+                  <RefreshCw className="w-4 h-4 text-gray-600" />
+                )}
+                <span>Check Live Status</span>
+              </button>
+            </div>
+            <p className="text-[10px] text-gray-400 text-center">
+              Your transaction is automatically polled from Safaricom Daraja, or enter your Transaction ID above for instant confirmation.
             </p>
-          </div>
+          </form>
         </div>
       </div>
     );
@@ -437,9 +560,13 @@ export default function Checkout() {
             </div>
 
             <div className="space-y-2 text-xs text-slate-300">
-              <div className="flex justify-between">
-                <span>Receipt Number:</span>
-                <span className="font-mono font-bold text-emerald-400">{completedPayment.receipt_number}</span>
+              <div className="flex justify-between items-center bg-slate-800/80 p-2.5 rounded-xl border border-slate-700/60">
+                <span className="text-slate-400">
+                  {completedPayment.method === 'mpesa' ? 'Daraja M-Pesa Transaction ID:' : 'Receipt Number:'}
+                </span>
+                <span className="font-mono font-black text-sm text-emerald-400 tracking-wider">
+                  {completedPayment.receipt_number}
+                </span>
               </div>
               {completedPayment.phone && (
                 <div className="flex justify-between">

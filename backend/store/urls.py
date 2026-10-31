@@ -2,7 +2,7 @@ from django.urls import path, include
 from rest_framework.routers import DefaultRouter
 from .views import (
     CategoryViewSet, ContactInquiryCreateView, ProductViewSet, OrderViewSet,
-    initiate_stk_push, check_payment_status, confirm_simulated_payment,
+    initiate_stk_push, check_payment_status, confirm_payment, confirm_simulated_payment,
     record_balance_payment, mpesa_callback, process_card_payment,
     trade_summary_analytics,
     register_user, login_user, current_user, change_password
@@ -23,6 +23,7 @@ urlpatterns = [
     # Payment endpoints
     path('payments/stk-push/', initiate_stk_push, name='payments-stk-push'),
     path('payments/status/', check_payment_status, name='payments-status'),
+    path('payments/confirm/', confirm_payment, name='payments-confirm'),
     path('payments/confirm-simulated/', confirm_simulated_payment, name='payments-confirm-simulated'),
     path('payments/record-balance/', record_balance_payment, name='payments-record-balance'),
     path('payments/card/', process_card_payment, name='payments-card'),

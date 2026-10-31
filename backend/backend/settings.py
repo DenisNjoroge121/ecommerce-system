@@ -12,9 +12,11 @@ https://docs.djangoproject.com/en/6.1/ref/settings/
 
 import os
 from pathlib import Path
+from dotenv import load_dotenv
 
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
 BASE_DIR = Path(__file__).resolve().parent.parent
+load_dotenv(BASE_DIR / '.env')
 
 
 # Quick-start development settings - unsuitable for production
@@ -153,8 +155,17 @@ MEDIA_URL = '/media/'
 MEDIA_ROOT = os.path.join(BASE_DIR, 'media')
 
 
-MPESA_CONSUMER_KEY = os.getenv('MPESA_CONSUMER_KEY')
-MPESA_CONSUMER_SECRET = os.getenv('MPESA_CONSUMER_SECRET')
-MPESA_SHORTCODE = os.getenv('MPESA_SHORTKEY')
-MPESA_PASSKEY = os.getenv('MPESA_PASSKEY')
-MPESA_CALLBACK_URL = os.getenv('MPESA_CALLBACK_URL')
+def _clean_env(val):
+    if not val:
+        return val
+    val = str(val).strip()
+    if (val.startswith('"') and val.endswith('"')) or (val.startswith("'") and val.endswith("'")):
+        val = val[1:-1].strip()
+    return val
+
+MPESA_CONSUMER_KEY = _clean_env(os.getenv('MPESA_CONSUMER_KEY'))
+MPESA_CONSUMER_SECRET = _clean_env(os.getenv('MPESA_CONSUMER_SECRET'))
+MPESA_SHORTCODE = _clean_env(os.getenv('MPESA_SHORTCODE') or os.getenv('MPESA_SHORTKEY') or '174379')
+MPESA_PASSKEY = _clean_env(os.getenv('MPESA_PASSKEY'))
+MPESA_CALLBACK_URL = _clean_env(os.getenv('MPESA_CALLBACK_URL'))
+MPESA_ENV = _clean_env(os.getenv('MPESA_ENV', 'sandbox'))
