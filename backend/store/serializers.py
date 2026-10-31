@@ -51,7 +51,7 @@ class OrderItemSerializer(serializers.ModelSerializer):
 class TransactionSerializer(serializers.ModelSerializer):
     class Meta:
         model = Transaction
-        fields = ['id', 'payment_method', 'checkout_request_id', 'receipt_number', 'amount', 'is_successful', 'created_at']
+        fields = ['id', 'payment_method', 'payment_type', 'checkout_request_id', 'receipt_number', 'amount', 'is_successful', 'created_at']
 
 class OrderSerializer(serializers.ModelSerializer):
     items = OrderItemSerializer(many=True, required=False)
@@ -61,7 +61,7 @@ class OrderSerializer(serializers.ModelSerializer):
         model = Order
         fields = [
             'order_id', 'customer_name', 'customer_email', 'customer_phone',
-            'total_amount', 'status', 'created_at', 'items', 'transactions'
+            'total_amount', 'deposit_amount', 'balance_due', 'status', 'created_at', 'items', 'transactions'
         ]
 
     def create(self, validated_data):

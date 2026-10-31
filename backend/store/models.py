@@ -51,6 +51,8 @@ class Order(models.Model):
     customer_email = models.EmailField()
     customer_phone = models.CharField(max_length=15)
     total_amount = models.DecimalField(max_digits=10, decimal_places=2)
+    deposit_amount = models.DecimalField(max_digits=10, decimal_places=2, default=0)
+    balance_due = models.DecimalField(max_digits=10, decimal_places=2, default=0)
     status = models.CharField(max_length=20, choices=STATUS_CHOICES, default='pending')
     created_at = models.DateTimeField(auto_now_add=True)
 
@@ -66,6 +68,7 @@ class Transaction(models.Model):
     payment_method = models.CharField(max_length=10, choices=PAYMENT_METHODS)
     checkout_request_id = models.CharField(max_length=255, null=True, blank=True)
     receipt_number = models.CharField(max_length=255, null=True, blank=True)
+    payment_type = models.CharField(max_length=10, choices=(('deposit','Deposit'),('final','Final')), default='deposit')
     amount = models.DecimalField(max_digits=10, decimal_places=2)
     is_successful = models.BooleanField(default=False)
     created_at = models.DateTimeField(auto_now_add=True)
