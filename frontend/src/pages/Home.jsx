@@ -67,10 +67,10 @@ export default function Home() {
             <span>Curated Online Store</span>
           </div>
           <h1 className="text-3xl md:text-5xl font-extrabold tracking-tight leading-tight">
-            Discover Quality Products with Instant M-Pesa &amp; Card Payments
+            Handcrafted Crochet Bags – Vibrant, Durable, and Made to Last
           </h1>
           <p className="text-slate-600 text-sm md:text-base leading-relaxed">
-            Browse our handpicked collection, inquire instantly via WhatsApp, and enjoy seamless mobile checkout.
+            We specialize in crocheted bags that combine style and durability. Explore our curated collection, chat with us on WhatsApp, and enjoy secure mobile checkout.
           </p>
         </div>
       </div>

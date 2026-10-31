@@ -151,6 +151,9 @@ export default function ProductDetail({ sellerPhone = "254700000000" }) {
                 {product.description || 'No detailed description provided for this product.'}
               </p>
             </div>
+            <div className="mt-4 p-3 bg-yellow-50 border border-yellow-200 rounded-md text-sm text-gray-800">
+              <strong>Pay a deposit now</strong> and settle the remaining balance when your bag is delivered.
+            </div>
           </div>
 
           {/* Quantity Selector & Action Buttons */}
