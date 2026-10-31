@@ -4,25 +4,48 @@ import API from '../api';
 import { useAuthStore } from '../store/useAuthStore';
 import {
   Package, ShoppingCart, Smartphone, Plus, Edit2, Trash2,
-  DollarSign, Send, X, RefreshCw, ArrowLeft,
-  Lock, KeyRound, ShieldCheck, CheckCircle2, AlertCircle, Loader2, User
+  DollarSign, Send, X, RefreshCw, ArrowLeft, BarChart3,
+  Lock, KeyRound, ShieldCheck, CheckCircle2, AlertCircle, Loader2, User,
+  Calendar, ChevronDown, ChevronUp, Printer, Check, CreditCard,
+  Wallet, Layers
 } from 'lucide-react';
 
 export default function AdminDashboard() {
   const { user, isAdmin, isAuthenticated, login } = useAuthStore();
 
-  const [activeTab, setActiveTab] = useState('products'); // 'products' | 'orders' | 'stk' | 'account'
+  const [activeTab, setActiveTab] = useState('orders'); // 'orders' | 'analytics' | 'products' | 'stk' | 'account'
   const [products, setProducts] = useState([]);
   const [categories, setCategories] = useState([]);
   const [orders, setOrders] = useState([]);
   const [loading, setLoading] = useState(false);
 
-  // Embedded Admin Login State (for direct login on the dashboard)
+  // Expanded Bag Items inside Orders list
+  const [expandedOrderId, setExpandedOrderId] = useState(null);
+
+  // Record Balance Payment Modal state
+  const [balanceModalOrder, setBalanceModalOrder] = useState(null);
+  const [balanceForm, setBalanceForm] = useState({
+    amount: '',
+    payment_method: 'mpesa',
+    receipt_number: '',
+  });
+  const [balanceSubmitting, setBalanceSubmitting] = useState(false);
+
+  // Trade Analytics & Calculation State
+  const [analyticsPeriod, setAnalyticsPeriod] = useState('week'); // 'week' | 'month' | 'year' | 'today' | 'custom'
+  const [customRange, setCustomRange] = useState({
+    start_date: new Date(new Date().setDate(new Date().getDate() - 7)).toISOString().split('T')[0],
+    end_date: new Date().toISOString().split('T')[0],
+  });
+  const [analyticsData, setAnalyticsData] = useState(null);
+  const [analyticsLoading, setAnalyticsLoading] = useState(false);
+
+  // Embedded Admin Login State
   const [adminLoginForm, setAdminLoginForm] = useState({ username: '', password: '' });
   const [adminLoginLoading, setAdminLoginLoading] = useState(false);
   const [adminLoginError, setAdminLoginError] = useState('');
 
-  // Modal states
+  // Product CRUD Modal states
   const [isProductModalOpen, setIsProductModalOpen] = useState(false);
   const [editingProduct, setEditingProduct] = useState(null);
   const [productForm, setProductForm] = useState({
@@ -51,11 +74,22 @@ export default function AdminDashboard() {
     confirm_password: '',
   });
   const [passwordLoading, setPasswordLoading] = useState(false);
-  const [passwordStatus, setPasswordStatus] = useState(null); // { type: 'success' | 'error', text: '' }
+  const [passwordStatus, setPasswordStatus] = useState(null);
+
+  // Printable Bag Invoice Modal state
+  const [printableOrder, setPrintableOrder] = useState(null);
 
   // Notification message
   const [bannerMsg, setBannerMsg] = useState(null);
 
+  const showNotification = (text, type = 'success') => {
+    setBannerMsg({ text, type });
+    setTimeout(() => setBannerMsg(null), 4000);
+  };
+
+  // -----------------------------------------------------------
+  // FETCH CORE STORE DATA
+  // -----------------------------------------------------------
   const fetchAdminData = async () => {
     setLoading(true);
     try {
@@ -74,6 +108,27 @@ export default function AdminDashboard() {
     }
   };
 
+  // -----------------------------------------------------------
+  // FETCH TRADE SUMMARY ANALYTICS
+  // -----------------------------------------------------------
+  const fetchAnalytics = async (period = analyticsPeriod, customDates = customRange) => {
+    setAnalyticsLoading(true);
+    try {
+      const params = { period };
+      if (period === 'custom') {
+        params.start_date = customDates.start_date;
+        params.end_date = customDates.end_date;
+      }
+      const res = await API.get('analytics/trade-summary/', { params });
+      setAnalyticsData(res.data);
+    } catch (err) {
+      console.error('Failed to fetch analytics:', err);
+    } finally {
+      setAnalyticsLoading(false);
+    }
+  };
+
+  // Initial load
   useEffect(() => {
     if (isAuthenticated && isAdmin) {
       let isMounted = true;
@@ -81,12 +136,14 @@ export default function AdminDashboard() {
         API.get('products/'),
         API.get('categories/'),
         API.get('orders/'),
+        API.get('analytics/trade-summary/', { params: { period: 'week' } }),
       ])
-        .then(([prodRes, catRes, ordRes]) => {
+        .then(([prodRes, catRes, ordRes, analyticsRes]) => {
           if (isMounted) {
             setProducts(prodRes.data);
             setCategories(catRes.data);
             setOrders(ordRes.data);
+            setAnalyticsData(analyticsRes.data);
           }
         })
         .catch((err) => {
@@ -95,15 +152,31 @@ export default function AdminDashboard() {
           }
         });
 
+      // Auto-sync every 10 seconds so customer payments reflect immediately
+      const autoSyncInterval = setInterval(() => {
+        API.get('orders/')
+          .then((res) => {
+            if (isMounted) setOrders(res.data);
+          })
+          .catch(() => {});
+      }, 10000);
+
       return () => {
         isMounted = false;
+        clearInterval(autoSyncInterval);
       };
     }
   }, [isAuthenticated, isAdmin]);
 
-  const showNotification = (text, type = 'success') => {
-    setBannerMsg({ text, type });
-    setTimeout(() => setBannerMsg(null), 4000);
+  // When switching to analytics tab or changing period
+  const handlePeriodChange = (newPeriod) => {
+    setAnalyticsPeriod(newPeriod);
+    fetchAnalytics(newPeriod, customRange);
+  };
+
+  const handleCustomRangeCalculate = (e) => {
+    e.preventDefault();
+    fetchAnalytics('custom', customRange);
   };
 
   // -----------------------------------------------------------
@@ -119,7 +192,7 @@ export default function AdminDashboard() {
       const loggedUser = res.data.user;
 
       if (!loggedUser.is_staff && !loggedUser.is_superuser) {
-        setAdminLoginError('This account does not have Administrator privileges. Please ensure "Staff status" is enabled in the Django admin panel.');
+        setAdminLoginError('This account does not have Administrator privileges. Please ensure "Staff status" is enabled.');
         return;
       }
 
@@ -254,30 +327,75 @@ export default function AdminDashboard() {
       await API.patch(`orders/${orderId}/`, { status: newStatus });
       showNotification(`Order status updated to "${newStatus}".`);
       fetchAdminData();
+      fetchAnalytics();
     } catch (err) {
       console.error('Failed to update order status:', err);
       showNotification('Failed to update status.', 'error');
     }
   };
 
-  const handleTriggerOrderSTK = async (order) => {
+  // Collect Remaining Balance via STK Push
+  const handleTriggerBalanceSTK = async (order) => {
+    const balance = Number(order.balance_due);
+    if (balance <= 0) {
+      showNotification('This order is already settled in full!', 'error');
+      return;
+    }
+
     let phone = String(order.customer_phone).trim().replace(/[^0-9]/g, '');
     if (phone.startsWith('0')) phone = '254' + phone.slice(1);
     else if (!phone.startsWith('254') && phone.length === 9) phone = '254' + phone;
 
     setStkLoading(true);
     try {
-      const res = await API.post('payments/stk-push/', {
+      await API.post('payments/stk-push/', {
         phone_number: phone,
         order_id: order.order_id,
+        amount: balance,
+        payment_type: 'final',
       });
-      showNotification(`STK push prompt dispatched to ${phone} for Order ${order.order_id.slice(0, 8)}!`);
-      setStkStatus(res.data);
+      showNotification(`M-Pesa balance STK push of KES ${balance.toLocaleString()} sent to ${phone}!`);
+      fetchAdminData();
     } catch (err) {
-      console.error('Failed to trigger STK push:', err);
-      showNotification('STK Push dispatch failed. Check phone format.', 'error');
+      console.error('Failed to trigger balance STK:', err);
+      showNotification('Failed to dispatch STK push. Check phone format.', 'error');
     } finally {
       setStkLoading(false);
+    }
+  };
+
+  // Record Balance Payment (Cash or M-Pesa Till)
+  const handleOpenRecordBalance = (order) => {
+    setBalanceModalOrder(order);
+    setBalanceForm({
+      amount: String(order.balance_due),
+      payment_method: 'mpesa',
+      receipt_number: `MAN-REC-${Date.now().toString().slice(-6)}`,
+    });
+  };
+
+  const handleSaveBalancePayment = async (e) => {
+    e.preventDefault();
+    if (!balanceModalOrder) return;
+
+    setBalanceSubmitting(true);
+    try {
+      await API.post('payments/record-balance/', {
+        order_id: balanceModalOrder.order_id,
+        amount: balanceForm.amount,
+        payment_method: balanceForm.payment_method,
+        receipt_number: balanceForm.receipt_number,
+      });
+
+      showNotification(`Balance payment of KES ${balanceForm.amount} recorded for Order ${balanceModalOrder.order_id.slice(0, 8)}!`);
+      setBalanceModalOrder(null);
+      fetchAdminData();
+      fetchAnalytics();
+    } catch (err) {
+      console.error('Failed to record balance:', err);
+      showNotification('Failed to record balance payment.', 'error');
+    } finally {
+      setBalanceSubmitting(false);
     }
   };
 
@@ -294,6 +412,7 @@ export default function AdminDashboard() {
       });
       setStkStatus(res.data);
       showNotification(`STK push sent to ${stkForm.phone_number} for KES ${stkForm.amount}!`);
+      fetchAdminData();
     } catch (err) {
       setStkStatus({ error: err.response?.data?.error || 'Failed to dispatch STK push.' });
     } finally {
@@ -314,7 +433,7 @@ export default function AdminDashboard() {
             </div>
             <h1 className="text-2xl font-black text-gray-900 tracking-tight">Store Owner Portal</h1>
             <p className="text-xs text-gray-500 leading-relaxed">
-              Sign in with the administrator credentials configured by your developer in the Django admin panel.
+              Sign in with your administrator credentials to access bag orders, payment tracking, and trade summaries.
             </p>
           </div>
 
@@ -379,11 +498,7 @@ export default function AdminDashboard() {
             </button>
           </form>
 
-          {/* Developer Guidance Note */}
           <div className="pt-4 border-t border-gray-100 text-center space-y-2">
-            <p className="text-[11px] text-gray-400">
-              Your login session is automatically persisted in your browser so you will not need to sign in again on this device.
-            </p>
             <button
               type="button"
               onClick={() => setAdminLoginForm({ username: 'admin', password: 'admin123' })}
@@ -397,11 +512,10 @@ export default function AdminDashboard() {
     );
   }
 
-  // Calculate high-level stats
-  const totalRevenue = orders
-    .filter((o) => o.status === 'paid')
-    .reduce((sum, o) => sum + Number(o.total_amount), 0);
-
+  // Calculate high-level stats from all orders
+  const totalTradeAll = orders.reduce((sum, o) => sum + Number(o.total_amount || 0), 0);
+  const totalDepositsAll = orders.reduce((sum, o) => sum + Number(o.deposit_amount || 0), 0);
+  const totalBalancesAll = orders.reduce((sum, o) => sum + Number(o.balance_due || 0), 0);
   const pendingOrdersCount = orders.filter((o) => o.status === 'pending').length;
 
   return (
@@ -421,18 +535,26 @@ export default function AdminDashboard() {
             <span className="px-2.5 py-0.5 rounded-full text-[11px] font-bold bg-sky-50 text-sky-700 border border-sky-100">
               Logged in as {user?.username}
             </span>
+            <span className="hidden md:inline-flex items-center gap-1 text-[11px] text-emerald-600 bg-emerald-50 px-2 py-0.5 rounded-full border border-emerald-100">
+              <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-ping" />
+              Live Sync Active
+            </span>
           </div>
         </div>
 
         <div className="flex items-center gap-2">
           <button
             type="button"
-            onClick={fetchAdminData}
+            onClick={() => {
+              fetchAdminData();
+              fetchAnalytics();
+              showNotification('Store data synchronized with Safaricom and database.');
+            }}
             className="p-2.5 bg-white border border-gray-200 hover:bg-gray-50 rounded-xl text-gray-700 transition text-xs flex items-center gap-1.5"
-            title="Refresh Data"
+            title="Sync latest customer payments and transactions"
           >
             <RefreshCw className={`w-3.5 h-3.5 ${loading ? 'animate-spin' : ''}`} />
-            <span>Sync</span>
+            <span>Sync Live</span>
           </button>
           <button
             type="button"
@@ -461,47 +583,76 @@ export default function AdminDashboard() {
         </div>
       )}
 
-      {/* Overview Metric Cards */}
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+      {/* Overview Metric Cards (Bags, Deposits, Balances) */}
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
         <div className="bg-white p-5 rounded-2xl border border-gray-100 shadow-xs space-y-1">
           <div className="flex items-center justify-between text-gray-400">
-            <span className="text-xs font-medium">Total Products</span>
-            <Package className="w-4 h-4 text-sky-500" />
-          </div>
-          <div className="text-2xl font-black text-gray-900">{products.length}</div>
-          <div className="text-[11px] text-gray-400">{categories.length} categories active</div>
-        </div>
-
-        <div className="bg-white p-5 rounded-2xl border border-gray-100 shadow-xs space-y-1">
-          <div className="flex items-center justify-between text-gray-400">
-            <span className="text-xs font-medium">Total Orders</span>
+            <span className="text-xs font-medium">Total Bag Trade</span>
             <ShoppingCart className="w-4 h-4 text-purple-500" />
           </div>
-          <div className="text-2xl font-black text-gray-900">{orders.length}</div>
-          <div className="text-[11px] text-amber-600 font-medium">{pendingOrdersCount} pending payment</div>
+          <div className="text-2xl font-black text-gray-900">KES {totalTradeAll.toLocaleString()}</div>
+          <div className="text-[11px] text-gray-400">{orders.length} customer bags placed</div>
         </div>
 
         <div className="bg-white p-5 rounded-2xl border border-gray-100 shadow-xs space-y-1">
           <div className="flex items-center justify-between text-gray-400">
-            <span className="text-xs font-medium">Paid Revenue</span>
+            <span className="text-xs font-medium">Deposits Collected</span>
             <DollarSign className="w-4 h-4 text-emerald-500" />
           </div>
-          <div className="text-2xl font-black text-emerald-600">KES {totalRevenue.toLocaleString()}</div>
-          <div className="text-[11px] text-gray-400">From settled orders</div>
+          <div className="text-2xl font-black text-emerald-600">KES {totalDepositsAll.toLocaleString()}</div>
+          <div className="text-[11px] text-emerald-600 font-medium">Real cash received</div>
         </div>
 
         <div className="bg-white p-5 rounded-2xl border border-gray-100 shadow-xs space-y-1">
           <div className="flex items-center justify-between text-gray-400">
-            <span className="text-xs font-medium">M-Pesa STK Gateway</span>
-            <Smartphone className="w-4 h-4 text-emerald-600" />
+            <span className="text-xs font-medium">Outstanding Balances</span>
+            <Wallet className="w-4 h-4 text-amber-500" />
           </div>
-          <div className="text-2xl font-black text-slate-800">Online</div>
-          <div className="text-[11px] text-emerald-600 font-medium">Lipa Na M-Pesa Ready</div>
+          <div className="text-2xl font-black text-amber-600">KES {totalBalancesAll.toLocaleString()}</div>
+          <div className="text-[11px] text-amber-700 font-medium">Pending on delivery/bags</div>
+        </div>
+
+        <div className="bg-white p-5 rounded-2xl border border-gray-100 shadow-xs space-y-1">
+          <div className="flex items-center justify-between text-gray-400">
+            <span className="text-xs font-medium">Products Inventory</span>
+            <Package className="w-4 h-4 text-sky-500" />
+          </div>
+          <div className="text-2xl font-black text-slate-800">{products.length} Items</div>
+          <div className="text-[11px] text-sky-600 font-medium">{pendingOrdersCount} orders pending</div>
         </div>
       </div>
 
       {/* Navigation Tabs */}
       <div className="border-b border-gray-200 flex gap-6 text-xs font-bold overflow-x-auto pb-0.5">
+        <button
+          type="button"
+          onClick={() => setActiveTab('orders')}
+          className={`pb-3 transition border-b-2 flex items-center gap-1.5 whitespace-nowrap ${
+            activeTab === 'orders'
+              ? 'border-sky-600 text-sky-600'
+              : 'border-transparent text-gray-500 hover:text-gray-800'
+          }`}
+        >
+          <ShoppingCart className="w-4 h-4" />
+          <span>Orders, Bags &amp; Balances ({orders.length})</span>
+        </button>
+
+        <button
+          type="button"
+          onClick={() => {
+            setActiveTab('analytics');
+            fetchAnalytics(analyticsPeriod, customRange);
+          }}
+          className={`pb-3 transition border-b-2 flex items-center gap-1.5 whitespace-nowrap ${
+            activeTab === 'analytics'
+              ? 'border-sky-600 text-sky-600'
+              : 'border-transparent text-gray-500 hover:text-gray-800'
+          }`}
+        >
+          <BarChart3 className="w-4 h-4" />
+          <span>Trade Summaries &amp; Calculations (Week/Month/Year)</span>
+        </button>
+
         <button
           type="button"
           onClick={() => setActiveTab('products')}
@@ -513,19 +664,6 @@ export default function AdminDashboard() {
         >
           <Package className="w-4 h-4" />
           <span>Products Inventory ({products.length})</span>
-        </button>
-
-        <button
-          type="button"
-          onClick={() => setActiveTab('orders')}
-          className={`pb-3 transition border-b-2 flex items-center gap-1.5 whitespace-nowrap ${
-            activeTab === 'orders'
-              ? 'border-sky-600 text-sky-600'
-              : 'border-transparent text-gray-500 hover:text-gray-800'
-          }`}
-        >
-          <ShoppingCart className="w-4 h-4" />
-          <span>Orders &amp; Payment Status ({orders.length})</span>
         </button>
 
         <button
@@ -551,12 +689,528 @@ export default function AdminDashboard() {
           }`}
         >
           <KeyRound className="w-4 h-4" />
-          <span>Account &amp; Change Password</span>
+          <span>Account Settings</span>
         </button>
       </div>
 
       {/* ------------------------------------------------------------- */}
-      {/* TAB 1: PRODUCTS INVENTORY */}
+      {/* TAB 1: ORDERS, BAGS & BALANCE MANAGEMENT */}
+      {/* ------------------------------------------------------------- */}
+      {activeTab === 'orders' && (
+        <div className="bg-white rounded-2xl border border-gray-100 shadow-xs overflow-hidden space-y-4">
+          <div className="p-4 bg-gray-50/75 border-b border-gray-100 flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3">
+            <div>
+              <h3 className="font-bold text-gray-900 text-sm">Customer Orders &amp; Bag Balances</h3>
+              <p className="text-xs text-gray-500">
+                Track customer deposits paid via M-Pesa, view items in each bag, and collect remaining balances.
+              </p>
+            </div>
+            <div className="text-xs text-gray-500 flex items-center gap-3">
+              <span className="flex items-center gap-1 font-semibold text-emerald-700">
+                <span className="w-2.5 h-2.5 rounded-full bg-emerald-500 inline-block" /> Paid Full
+              </span>
+              <span className="flex items-center gap-1 font-semibold text-amber-700">
+                <span className="w-2.5 h-2.5 rounded-full bg-amber-500 inline-block" /> Deposit Paid (Partial)
+              </span>
+              <span className="flex items-center gap-1 font-semibold text-gray-500">
+                <span className="w-2.5 h-2.5 rounded-full bg-gray-400 inline-block" /> Pending
+              </span>
+            </div>
+          </div>
+
+          <div className="overflow-x-auto">
+            <table className="w-full text-left text-xs">
+              <thead className="bg-gray-50/50 border-b border-gray-100 text-gray-500 uppercase font-semibold">
+                <tr>
+                  <th className="py-3 px-4">Bag Ref</th>
+                  <th className="py-3 px-4">Customer</th>
+                  <th className="py-3 px-4">Total Bag</th>
+                  <th className="py-3 px-4 text-emerald-700">Deposit Paid</th>
+                  <th className="py-3 px-4 text-amber-700">Balance Due</th>
+                  <th className="py-3 px-4">Status</th>
+                  <th className="py-3 px-4">Date</th>
+                  <th className="py-3 px-4 text-right">Actions</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-gray-100 text-gray-700">
+                {orders.length === 0 ? (
+                  <tr>
+                    <td colSpan={8} className="py-10 text-center text-gray-400">
+                      No customer orders recorded yet.
+                    </td>
+                  </tr>
+                ) : (
+                  orders.map((o) => {
+                    const isExpanded = expandedOrderId === o.order_id;
+                    const balance = Number(o.balance_due || 0);
+                    const deposit = Number(o.deposit_amount || 0);
+                    const total = Number(o.total_amount || 0);
+
+                    return (
+                      <div key={o.order_id} style={{ display: 'contents' }}>
+                        <tr className={`hover:bg-gray-50/50 transition ${isExpanded ? 'bg-sky-50/20' : ''}`}>
+                          {/* Bag Ref */}
+                          <td className="py-3.5 px-4">
+                            <button
+                              type="button"
+                              onClick={() => setExpandedOrderId(isExpanded ? null : o.order_id)}
+                              className="font-mono font-bold text-sky-700 hover:text-sky-900 flex items-center gap-1"
+                              title="Click to view items in this bag"
+                            >
+                              <span>{String(o.order_id).slice(0, 8)}</span>
+                              {isExpanded ? <ChevronUp className="w-3.5 h-3.5" /> : <ChevronDown className="w-3.5 h-3.5" />}
+                            </button>
+                            <span className="text-[10px] text-gray-400 block">
+                              {o.items?.length || 0} item(s) in bag
+                            </span>
+                          </td>
+
+                          {/* Customer */}
+                          <td className="py-3.5 px-4">
+                            <div className="font-semibold text-gray-900">{o.customer_name}</div>
+                            <div className="text-[11px] text-gray-400">
+                              {o.customer_phone} &bull; {o.customer_email}
+                            </div>
+                          </td>
+
+                          {/* Total Bag */}
+                          <td className="py-3.5 px-4 font-black text-gray-900">
+                            KES {total.toLocaleString()}
+                          </td>
+
+                          {/* Deposit Paid */}
+                          <td className="py-3.5 px-4 font-black text-emerald-600">
+                            KES {deposit.toLocaleString()}
+                            {o.transactions && o.transactions.length > 0 && o.transactions[0].receipt_number && (
+                              <span className="block text-[10px] font-mono text-emerald-800 bg-emerald-50 px-1.5 py-0.5 rounded mt-0.5">
+                                {o.transactions[0].receipt_number}
+                              </span>
+                            )}
+                          </td>
+
+                          {/* Balance Due */}
+                          <td className="py-3.5 px-4">
+                            {balance > 0 ? (
+                              <span className="font-black text-amber-700 bg-amber-50 px-2.5 py-1 rounded-lg border border-amber-200 block text-center">
+                                KES {balance.toLocaleString()}
+                              </span>
+                            ) : (
+                              <span className="text-emerald-700 font-bold flex items-center gap-1">
+                                <Check className="w-3.5 h-3.5" /> Settled (KES 0)
+                              </span>
+                            )}
+                          </td>
+
+                          {/* Status */}
+                          <td className="py-3.5 px-4">
+                            <select
+                              value={o.status}
+                              onChange={(e) => handleUpdateOrderStatus(o.order_id, e.target.value)}
+                              className={`px-2.5 py-1 rounded-xl text-xs font-bold border focus:outline-hidden cursor-pointer ${
+                                o.status === 'paid'
+                                  ? 'bg-emerald-50 text-emerald-700 border-emerald-200'
+                                  : o.status === 'partially_paid'
+                                  ? 'bg-amber-50 text-amber-700 border-amber-200'
+                                  : o.status === 'pending'
+                                  ? 'bg-yellow-50 text-yellow-700 border-yellow-200'
+                                  : o.status === 'shipped'
+                                  ? 'bg-sky-50 text-sky-700 border-sky-200'
+                                  : 'bg-gray-100 text-gray-700 border-gray-200'
+                              }`}
+                            >
+                              <option value="pending">Pending Payment</option>
+                              <option value="partially_paid">Deposit Paid</option>
+                              <option value="paid">Paid in Full</option>
+                              <option value="shipped">Shipped</option>
+                              <option value="delivered">Delivered</option>
+                              <option value="cancelled">Cancelled</option>
+                            </select>
+                          </td>
+
+                          {/* Date */}
+                          <td className="py-3.5 px-4 text-gray-400">
+                            {new Date(o.created_at).toLocaleDateString()}
+                          </td>
+
+                          {/* Actions */}
+                          <td className="py-3.5 px-4 text-right">
+                            <div className="flex items-center justify-end gap-1.5">
+                              {balance > 0 ? (
+                                <>
+                                  <button
+                                    type="button"
+                                    onClick={() => handleTriggerBalanceSTK(o)}
+                                    disabled={stkLoading}
+                                    className="px-2.5 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg font-semibold text-[11px] transition shadow-xs flex items-center gap-1"
+                                    title="Send M-Pesa STK prompt for remaining balance"
+                                  >
+                                    <Smartphone className="w-3 h-3" />
+                                    <span>STK Balance</span>
+                                  </button>
+                                  <button
+                                    type="button"
+                                    onClick={() => handleOpenRecordBalance(o)}
+                                    className="px-2.5 py-1.5 bg-slate-900 hover:bg-slate-800 text-white rounded-lg font-semibold text-[11px] transition flex items-center gap-1"
+                                    title="Record payment of remaining balance"
+                                  >
+                                    <DollarSign className="w-3 h-3" />
+                                    <span>Record Pay</span>
+                                  </button>
+                                </>
+                              ) : (
+                                <button
+                                  type="button"
+                                  onClick={() => setPrintableOrder(o)}
+                                  className="px-2.5 py-1.5 bg-gray-100 hover:bg-gray-200 text-gray-700 rounded-lg font-semibold text-[11px] transition flex items-center gap-1"
+                                  title="Print Bag Slip / Invoice"
+                                >
+                                  <Printer className="w-3 h-3" />
+                                  <span>Slip</span>
+                                </button>
+                              )}
+                            </div>
+                          </td>
+                        </tr>
+
+                        {/* Expandable Bag Contents Row */}
+                        {isExpanded && (
+                          <tr className="bg-sky-50/30 border-b border-gray-100">
+                            <td colSpan={8} className="p-4">
+                              <div className="bg-white rounded-xl p-4 border border-sky-100 shadow-xs space-y-3">
+                                <div className="flex justify-between items-center border-b border-gray-100 pb-2">
+                                  <span className="font-bold text-gray-900 text-xs flex items-center gap-1.5">
+                                    <Layers className="w-4 h-4 text-sky-600" />
+                                    Items in Bag for Order {o.order_id.slice(0, 8)}
+                                  </span>
+                                  <button
+                                    type="button"
+                                    onClick={() => setPrintableOrder(o)}
+                                    className="text-[11px] font-semibold text-sky-600 hover:text-sky-700 flex items-center gap-1"
+                                  >
+                                    <Printer className="w-3 h-3" /> Print Delivery Slip
+                                  </button>
+                                </div>
+
+                                <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-3">
+                                  {o.items?.map((it, idx) => (
+                                    <div key={idx} className="p-2.5 rounded-lg bg-gray-50 border border-gray-100 flex items-center gap-3">
+                                      <div className="w-10 h-10 rounded-md bg-gray-200 overflow-hidden shrink-0">
+                                        {it.product_image ? (
+                                          <img src={it.product_image} alt={it.product_title} className="w-full h-full object-cover" />
+                                        ) : (
+                                          <div className="w-full h-full flex items-center justify-center text-gray-400">
+                                            <Package className="w-5 h-5" />
+                                          </div>
+                                        )}
+                                      </div>
+                                      <div className="min-w-0 flex-1">
+                                        <div className="font-semibold text-gray-900 truncate">{it.product_title}</div>
+                                        <div className="text-[11px] text-gray-500">
+                                          Qty: {it.quantity} &times; KES {Number(it.price).toLocaleString()}
+                                        </div>
+                                      </div>
+                                      <div className="font-bold text-gray-800 text-right">
+                                        KES {(it.price * it.quantity).toLocaleString()}
+                                      </div>
+                                    </div>
+                                  ))}
+                                </div>
+
+                                <div className="pt-2 border-t border-gray-100 flex flex-wrap justify-between text-xs text-gray-600">
+                                  <span>Total Bag: <strong className="text-gray-900">KES {total.toLocaleString()}</strong></span>
+                                  <span>Deposit Paid: <strong className="text-emerald-700">KES {deposit.toLocaleString()}</strong></span>
+                                  <span>Balance Remaining: <strong className="text-amber-700">KES {balance.toLocaleString()}</strong></span>
+                                </div>
+                              </div>
+                            </td>
+                          </tr>
+                        )}
+                      </div>
+                    );
+                  })
+                )}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
+
+      {/* ------------------------------------------------------------- */}
+      {/* TAB 2: TRADE SUMMARIES & FINANCIAL CALCULATOR */}
+      {/* ------------------------------------------------------------- */}
+      {activeTab === 'analytics' && (
+        <div className="space-y-6">
+          <div className="bg-white rounded-2xl border border-gray-100 shadow-xs p-6 space-y-5">
+            <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
+              <div>
+                <h3 className="font-black text-gray-900 text-lg flex items-center gap-2">
+                  <BarChart3 className="w-5 h-5 text-sky-600" />
+                  <span>Trade Summary &amp; Financial Calculations</span>
+                </h3>
+                <p className="text-xs text-gray-500 mt-0.5">
+                  Analyze gross bag trade, deposits collected via M-Pesa, and accounts receivable across any week, month, or year.
+                </p>
+              </div>
+
+              <div className="flex flex-wrap gap-2">
+                <button
+                  type="button"
+                  onClick={() => handlePeriodChange('today')}
+                  className={`px-3.5 py-2 rounded-xl text-xs font-bold transition ${
+                    analyticsPeriod === 'today'
+                      ? 'bg-slate-900 text-white shadow-xs'
+                      : 'bg-gray-100 hover:bg-gray-200 text-gray-700'
+                  }`}
+                >
+                  Today
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => handlePeriodChange('week')}
+                  className={`px-3.5 py-2 rounded-xl text-xs font-bold transition ${
+                    analyticsPeriod === 'week'
+                      ? 'bg-slate-900 text-white shadow-xs'
+                      : 'bg-gray-100 hover:bg-gray-200 text-gray-700'
+                  }`}
+                >
+                  Whole Week
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => handlePeriodChange('month')}
+                  className={`px-3.5 py-2 rounded-xl text-xs font-bold transition ${
+                    analyticsPeriod === 'month'
+                      ? 'bg-slate-900 text-white shadow-xs'
+                      : 'bg-gray-100 hover:bg-gray-200 text-gray-700'
+                  }`}
+                >
+                  Whole Month
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => handlePeriodChange('year')}
+                  className={`px-3.5 py-2 rounded-xl text-xs font-bold transition ${
+                    analyticsPeriod === 'year'
+                      ? 'bg-slate-900 text-white shadow-xs'
+                      : 'bg-gray-100 hover:bg-gray-200 text-gray-700'
+                  }`}
+                >
+                  Whole Year
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => handlePeriodChange('all')}
+                  className={`px-3.5 py-2 rounded-xl text-xs font-bold transition ${
+                    analyticsPeriod === 'all'
+                      ? 'bg-slate-900 text-white shadow-xs'
+                      : 'bg-gray-100 hover:bg-gray-200 text-gray-700'
+                  }`}
+                >
+                  All Time
+                </button>
+              </div>
+            </div>
+
+            <form onSubmit={handleCustomRangeCalculate} className="pt-4 border-t border-gray-100 flex flex-wrap items-center gap-3 text-xs">
+              <span className="font-bold text-gray-700 flex items-center gap-1.5">
+                <Calendar className="w-4 h-4 text-gray-400" /> Custom Trade Calculator:
+              </span>
+              <div className="flex items-center gap-2">
+                <label className="text-gray-500">From:</label>
+                <input
+                  type="date"
+                  value={customRange.start_date}
+                  onChange={(e) => setCustomRange({ ...customRange, start_date: e.target.value })}
+                  className="px-3 py-1.5 rounded-lg border border-gray-200 focus:ring-2 focus:ring-sky-500"
+                />
+              </div>
+              <div className="flex items-center gap-2">
+                <label className="text-gray-500">To:</label>
+                <input
+                  type="date"
+                  value={customRange.end_date}
+                  onChange={(e) => setCustomRange({ ...customRange, end_date: e.target.value })}
+                  className="px-3 py-1.5 rounded-lg border border-gray-200 focus:ring-2 focus:ring-sky-500"
+                />
+              </div>
+              <button
+                type="submit"
+                disabled={analyticsLoading}
+                className="px-4 py-1.5 bg-sky-600 hover:bg-sky-700 text-white font-bold rounded-lg transition shadow-xs"
+              >
+                {analyticsLoading ? 'Calculating...' : 'Calculate Summary'}
+              </button>
+            </form>
+          </div>
+
+          {analyticsData && (
+            <div className="space-y-4">
+              <div className="flex justify-between items-center px-1">
+                <h4 className="text-sm font-black text-gray-800 uppercase tracking-wider">
+                  Summary for: <span className="text-sky-600">{analyticsData.period_label}</span>
+                </h4>
+                <span className="text-xs text-gray-500">
+                  {analyticsData.metrics.orders_count} bags traded
+                </span>
+              </div>
+
+              <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+                <div className="bg-white p-5 rounded-2xl border border-gray-100 shadow-xs space-y-1">
+                  <span className="text-xs font-semibold text-gray-400 block">Gross Trade Volume</span>
+                  <div className="text-2xl font-black text-gray-900">
+                    KES {analyticsData.metrics.total_trade_volume.toLocaleString()}
+                  </div>
+                  <span className="text-[11px] text-gray-400 block">Total customer bags</span>
+                </div>
+
+                <div className="bg-white p-5 rounded-2xl border border-gray-100 shadow-xs space-y-1">
+                  <span className="text-xs font-semibold text-emerald-600 block">Deposits Collected</span>
+                  <div className="text-2xl font-black text-emerald-600">
+                    KES {analyticsData.metrics.total_deposits_collected.toLocaleString()}
+                  </div>
+                  <span className="text-[11px] text-emerald-700 font-medium block">
+                    {analyticsData.metrics.settlement_rate}% of trade collected
+                  </span>
+                </div>
+
+                <div className="bg-white p-5 rounded-2xl border border-gray-100 shadow-xs space-y-1">
+                  <span className="text-xs font-semibold text-amber-600 block">Outstanding Balances</span>
+                  <div className="text-2xl font-black text-amber-600">
+                    KES {analyticsData.metrics.total_balance_due.toLocaleString()}
+                  </div>
+                  <span className="text-[11px] text-amber-700 font-medium block">Due on deliveries</span>
+                </div>
+
+                <div className="bg-white p-5 rounded-2xl border border-gray-100 shadow-xs space-y-1">
+                  <span className="text-xs font-semibold text-sky-600 block">Average Bag Value</span>
+                  <div className="text-2xl font-black text-sky-600">
+                    KES {analyticsData.metrics.average_bag_value.toLocaleString()}
+                  </div>
+                  <span className="text-[11px] text-gray-400 block">Per order average</span>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div className="bg-white p-5 rounded-2xl border border-gray-100 shadow-xs space-y-3 text-xs">
+                  <h5 className="font-bold text-gray-900 text-sm">Bag Settlement Breakdown</h5>
+                  <div className="space-y-2">
+                    <div className="flex justify-between items-center py-1 border-b border-gray-50">
+                      <span className="text-gray-600 flex items-center gap-1.5">
+                        <span className="w-2.5 h-2.5 rounded-full bg-emerald-500" /> Fully Settled Bags:
+                      </span>
+                      <strong className="text-gray-900">{analyticsData.metrics.paid_orders}</strong>
+                    </div>
+                    <div className="flex justify-between items-center py-1 border-b border-gray-50">
+                      <span className="text-gray-600 flex items-center gap-1.5">
+                        <span className="w-2.5 h-2.5 rounded-full bg-amber-500" /> Deposit Paid (Partial):
+                      </span>
+                      <strong className="text-gray-900">{analyticsData.metrics.partial_orders}</strong>
+                    </div>
+                    <div className="flex justify-between items-center py-1 border-b border-gray-50">
+                      <span className="text-gray-600 flex items-center gap-1.5">
+                        <span className="w-2.5 h-2.5 rounded-full bg-yellow-500" /> Pending Payment:
+                      </span>
+                      <strong className="text-gray-900">{analyticsData.metrics.pending_orders}</strong>
+                    </div>
+                  </div>
+                </div>
+
+                <div className="bg-white p-5 rounded-2xl border border-gray-100 shadow-xs space-y-3 text-xs">
+                  <h5 className="font-bold text-gray-900 text-sm">Payment Methods Collected</h5>
+                  <div className="space-y-2">
+                    <div className="flex justify-between items-center py-1 border-b border-gray-50">
+                      <span className="text-gray-600 flex items-center gap-1.5">
+                        <Smartphone className="w-3.5 h-3.5 text-emerald-600" /> Lipa Na M-Pesa:
+                      </span>
+                      <strong className="text-emerald-700">
+                        KES {analyticsData.payment_methods.mpesa.toLocaleString()}
+                      </strong>
+                    </div>
+                    <div className="flex justify-between items-center py-1 border-b border-gray-50">
+                      <span className="text-gray-600 flex items-center gap-1.5">
+                        <CreditCard className="w-3.5 h-3.5 text-sky-600" /> Credit / Debit Card:
+                      </span>
+                      <strong className="text-sky-700">
+                        KES {analyticsData.payment_methods.card.toLocaleString()}
+                      </strong>
+                    </div>
+                    <div className="flex justify-between items-center py-1 border-b border-gray-50">
+                      <span className="text-gray-600 flex items-center gap-1.5">
+                        <DollarSign className="w-3.5 h-3.5 text-slate-600" /> Cash Settlements:
+                      </span>
+                      <strong className="text-slate-800">
+                        KES {analyticsData.payment_methods.cash.toLocaleString()}
+                      </strong>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              {analyticsData.breakdown && analyticsData.breakdown.length > 0 && (
+                <div className="bg-white rounded-2xl border border-gray-100 shadow-xs overflow-hidden">
+                  <div className="p-4 bg-gray-50/75 border-b border-gray-100 flex justify-between items-center">
+                    <h5 className="font-bold text-gray-900 text-xs">
+                      Time-Series Trade Distribution ({analyticsPeriod.toUpperCase()})
+                    </h5>
+                    <button
+                      type="button"
+                      onClick={() => window.print()}
+                      className="text-xs font-semibold text-gray-600 hover:text-gray-900 flex items-center gap-1"
+                    >
+                      <Printer className="w-3.5 h-3.5" /> Print Trade Report
+                    </button>
+                  </div>
+
+                  <div className="overflow-x-auto">
+                    <table className="w-full text-left text-xs">
+                      <thead className="bg-gray-50/50 border-b border-gray-100 text-gray-500 uppercase font-semibold">
+                        <tr>
+                          <th className="py-3 px-4">Period / Day</th>
+                          <th className="py-3 px-4">Bags Count</th>
+                          <th className="py-3 px-4">Gross Trade</th>
+                          <th className="py-3 px-4 text-emerald-700">Deposits Paid</th>
+                          <th className="py-3 px-4 text-amber-700">Balance Pending</th>
+                          <th className="py-3 px-4">Collection Visual</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-gray-100 text-gray-700">
+                        {analyticsData.breakdown.map((row, idx) => {
+                          const rate = row.trade_volume > 0 ? Math.min(100, Math.round((row.deposits_collected / row.trade_volume) * 100)) : 0;
+                          return (
+                            <tr key={idx} className="hover:bg-gray-50/50">
+                              <td className="py-3 px-4 font-bold text-gray-900">{row.label}</td>
+                              <td className="py-3 px-4">{row.orders_count}</td>
+                              <td className="py-3 px-4 font-bold">KES {row.trade_volume.toLocaleString()}</td>
+                              <td className="py-3 px-4 font-bold text-emerald-600">KES {row.deposits_collected.toLocaleString()}</td>
+                              <td className="py-3 px-4 font-bold text-amber-600">KES {row.balance_due.toLocaleString()}</td>
+                              <td className="py-3 px-4 w-48">
+                                <div className="w-full bg-gray-100 rounded-full h-2.5 overflow-hidden">
+                                  <div
+                                    className="bg-emerald-500 h-2.5 rounded-full transition-all"
+                                    style={{ width: `${rate}%` }}
+                                  />
+                                </div>
+                                <span className="text-[10px] text-gray-400 mt-0.5 block">{rate}% Collected</span>
+                              </td>
+                            </tr>
+                          );
+                        })}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* ------------------------------------------------------------- */}
+      {/* TAB 3: PRODUCTS INVENTORY */}
       {/* ------------------------------------------------------------- */}
       {activeTab === 'products' && (
         <div className="bg-white rounded-2xl border border-gray-100 shadow-xs overflow-hidden">
@@ -650,96 +1304,7 @@ export default function AdminDashboard() {
       )}
 
       {/* ------------------------------------------------------------- */}
-      {/* TAB 2: ORDERS & INITIATE STK PUSH */}
-      {/* ------------------------------------------------------------- */}
-      {activeTab === 'orders' && (
-        <div className="bg-white rounded-2xl border border-gray-100 shadow-xs overflow-hidden">
-          <div className="overflow-x-auto">
-            <table className="w-full text-left text-xs">
-              <thead className="bg-gray-50/75 border-b border-gray-100 text-gray-500 uppercase font-semibold">
-                <tr>
-                  <th className="py-3 px-4">Order Ref</th>
-                  <th className="py-3 px-4">Customer</th>
-                  <th className="py-3 px-4">Total Amount</th>
-                  <th className="py-3 px-4">Status</th>
-                  <th className="py-3 px-4">Date</th>
-                  <th className="py-3 px-4 text-right">M-Pesa Action</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-gray-100 text-gray-700">
-                {orders.length === 0 ? (
-                  <tr>
-                    <td colSpan={6} className="py-8 text-center text-gray-400">
-                      No customer orders recorded yet.
-                    </td>
-                  </tr>
-                ) : (
-                  orders.map((o) => (
-                    <tr key={o.order_id} className="hover:bg-gray-50/50 transition">
-                      <td className="py-3.5 px-4 font-mono font-bold text-slate-800">
-                        {String(o.order_id).slice(0, 8)}
-                      </td>
-
-                      <td className="py-3.5 px-4">
-                        <div className="font-semibold text-gray-900">{o.customer_name}</div>
-                        <div className="text-[11px] text-gray-400">
-                          {o.customer_phone} &bull; {o.customer_email}
-                        </div>
-                      </td>
-
-                      <td className="py-3.5 px-4 font-black text-gray-900">
-                        KES {Number(o.total_amount).toLocaleString()}
-                      </td>
-
-                      <td className="py-3.5 px-4">
-                        <select
-                          value={o.status}
-                          onChange={(e) => handleUpdateOrderStatus(o.order_id, e.target.value)}
-                          className={`px-2.5 py-1 rounded-xl text-xs font-bold border focus:outline-hidden cursor-pointer ${
-                            o.status === 'paid'
-                              ? 'bg-emerald-50 text-emerald-700 border-emerald-200'
-                              : o.status === 'pending'
-                              ? 'bg-amber-50 text-amber-700 border-amber-200'
-                              : o.status === 'shipped'
-                              ? 'bg-sky-50 text-sky-700 border-sky-200'
-                              : 'bg-gray-100 text-gray-700 border-gray-200'
-                          }`}
-                        >
-                          <option value="pending">Pending</option>
-                          <option value="paid">Paid</option>
-                          <option value="shipped">Shipped</option>
-                          <option value="delivered">Delivered</option>
-                          <option value="failed">Failed</option>
-                        </select>
-                      </td>
-
-                      <td className="py-3.5 px-4 text-gray-400">
-                        {new Date(o.created_at).toLocaleDateString()}
-                      </td>
-
-                      <td className="py-3.5 px-4 text-right">
-                        <button
-                          type="button"
-                          onClick={() => handleTriggerOrderSTK(o)}
-                          disabled={stkLoading}
-                          className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl font-semibold text-[11px] transition shadow-xs"
-                          title="Send M-Pesa STK prompt to customer phone"
-                        >
-                          <Smartphone className="w-3.5 h-3.5" />
-                          <span>Dispatch STK</span>
-                        </button>
-                      </td>
-                    </tr>
-                  ))
-                )}
-              </tbody>
-            </table>
-          </div>
-        </div>
-      )}
-
-      {/* ------------------------------------------------------------- */}
-      {/* TAB 3: M-PESA STK PUSH LAUNCHER */}
+      {/* TAB 4: M-PESA STK PUSH LAUNCHER */}
       {/* ------------------------------------------------------------- */}
       {activeTab === 'stk' && (
         <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
@@ -750,7 +1315,7 @@ export default function AdminDashboard() {
                 <span>On-Demand M-Pesa STK Push Tool</span>
               </h3>
               <p className="text-xs text-gray-500 mt-1">
-                Trigger Lipa Na M-Pesa STK push prompts manually for any phone number and amount.
+                Trigger Lipa Na M-Pesa STK push prompts directly for customer deposits or balance collections.
               </p>
             </div>
 
@@ -786,17 +1351,17 @@ export default function AdminDashboard() {
 
               <div>
                 <label className="block text-xs font-semibold text-gray-700 uppercase tracking-wider mb-1">
-                  Link to Order (Optional)
+                  Link to Bag / Order (Optional)
                 </label>
                 <select
                   value={stkForm.order_id}
                   onChange={(e) => setStkForm({ ...stkForm, order_id: e.target.value })}
                   className="w-full px-4 py-2 rounded-xl border border-gray-200 text-xs focus:ring-2 focus:ring-emerald-500 focus:outline-hidden"
                 >
-                  <option value="">No specific order (Direct Test Push)</option>
+                  <option value="">No specific order (Direct Push)</option>
                   {orders.map((o) => (
                     <option key={o.order_id} value={o.order_id}>
-                      Order {o.order_id.slice(0, 8)} - KES {o.total_amount} ({o.customer_name})
+                      Order {o.order_id.slice(0, 8)} - Balance: KES {o.balance_due} ({o.customer_name})
                     </option>
                   ))}
                 </select>
@@ -813,11 +1378,10 @@ export default function AdminDashboard() {
             </form>
           </div>
 
-          {/* Response inspector */}
           <div className="bg-slate-900 text-white rounded-2xl p-6 space-y-4 font-mono text-xs">
             <div className="flex justify-between items-center border-b border-slate-800 pb-3">
               <span className="text-slate-400">Daraja STK Response Monitor</span>
-              <span className="text-emerald-400 font-bold">API Status: OK</span>
+              <span className="text-emerald-400 font-bold">Lipa Na M-Pesa</span>
             </div>
 
             {stkStatus ? (
@@ -834,7 +1398,7 @@ export default function AdminDashboard() {
       )}
 
       {/* ------------------------------------------------------------- */}
-      {/* TAB 4: ACCOUNT SETTINGS & CHANGE PASSWORD */}
+      {/* TAB 5: ACCOUNT SETTINGS */}
       {/* ------------------------------------------------------------- */}
       {activeTab === 'account' && (
         <div className="max-w-2xl bg-white rounded-2xl border border-gray-100 shadow-xs p-6 space-y-6">
@@ -844,11 +1408,10 @@ export default function AdminDashboard() {
               <span>Change Store Owner Password</span>
             </h3>
             <p className="text-xs text-gray-500 mt-1">
-              Update the temporary password given by your developer to secure your store administration.
+              Update your administrative password for the online control center.
             </p>
           </div>
 
-          {/* Account Profile Card */}
           <div className="bg-gray-50 rounded-xl p-4 border border-gray-100 flex items-center justify-between text-xs">
             <div>
               <span className="text-gray-400 block text-[11px] uppercase font-semibold">Active Admin Account</span>
@@ -860,7 +1423,6 @@ export default function AdminDashboard() {
             </span>
           </div>
 
-          {/* Status Message */}
           {passwordStatus && (
             <div
               className={`p-3.5 rounded-xl text-xs font-medium flex items-center gap-2 ${
@@ -878,11 +1440,10 @@ export default function AdminDashboard() {
             </div>
           )}
 
-          {/* Change Password Form */}
           <form onSubmit={handleChangePassword} className="space-y-4 text-xs">
             <div>
               <label className="block font-semibold text-gray-700 uppercase mb-1">
-                Current / Temporary Password
+                Current Password
               </label>
               <div className="relative">
                 <Lock className="w-4 h-4 text-gray-400 absolute left-3.5 top-2.5" />
@@ -955,7 +1516,201 @@ export default function AdminDashboard() {
       )}
 
       {/* ------------------------------------------------------------- */}
-      {/* PRODUCT CREATE / EDIT MODAL */}
+      {/* MODAL 1: RECORD BALANCE PAYMENT */}
+      {/* ------------------------------------------------------------- */}
+      {balanceModalOrder && (
+        <div className="fixed inset-0 z-50 bg-black/50 backdrop-blur-xs flex items-center justify-center p-4">
+          <div className="bg-white rounded-2xl shadow-xl border border-gray-100 max-w-md w-full p-6 space-y-4">
+            <div className="flex justify-between items-center border-b border-gray-100 pb-3">
+              <div>
+                <h3 className="font-bold text-gray-900 text-base">Record Balance Settlement</h3>
+                <p className="text-xs text-gray-500">Order {balanceModalOrder.order_id.slice(0, 8)} ({balanceModalOrder.customer_name})</p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setBalanceModalOrder(null)}
+                className="text-gray-400 hover:text-gray-600"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <div className="bg-amber-50 rounded-xl p-3.5 border border-amber-100 text-xs space-y-1">
+              <div className="flex justify-between">
+                <span className="text-amber-800">Total Bag Value:</span>
+                <span className="font-bold text-amber-950">KES {Number(balanceModalOrder.total_amount).toLocaleString()}</span>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-amber-800">Deposit Paid:</span>
+                <span className="font-bold text-emerald-700">KES {Number(balanceModalOrder.deposit_amount).toLocaleString()}</span>
+              </div>
+              <div className="flex justify-between text-sm font-black pt-1 border-t border-amber-200 text-amber-900">
+                <span>Remaining Balance Due:</span>
+                <span>KES {Number(balanceModalOrder.balance_due).toLocaleString()}</span>
+              </div>
+            </div>
+
+            <form onSubmit={handleSaveBalancePayment} className="space-y-4 text-xs">
+              <div>
+                <label className="block font-semibold text-gray-700 uppercase mb-1">
+                  Payment Method
+                </label>
+                <select
+                  value={balanceForm.payment_method}
+                  onChange={(e) => setBalanceForm({ ...balanceForm, payment_method: e.target.value })}
+                  className="w-full px-3 py-2 rounded-xl border border-gray-200 focus:ring-2 focus:ring-sky-500"
+                >
+                  <option value="mpesa">Lipa Na M-Pesa Till / Paybill</option>
+                  <option value="cash">Cash on Delivery / Pickup</option>
+                  <option value="card">Card Terminal / POS</option>
+                </select>
+              </div>
+
+              <div>
+                <label className="block font-semibold text-gray-700 uppercase mb-1">
+                  Amount Received (KES)
+                </label>
+                <input
+                  type="number"
+                  step="0.01"
+                  required
+                  value={balanceForm.amount}
+                  onChange={(e) => setBalanceForm({ ...balanceForm, amount: e.target.value })}
+                  className="w-full px-3 py-2 rounded-xl border border-gray-200 focus:ring-2 focus:ring-sky-500 font-bold text-gray-900"
+                />
+              </div>
+
+              <div>
+                <label className="block font-semibold text-gray-700 uppercase mb-1">
+                  Receipt / Transaction Ref (Optional)
+                </label>
+                <input
+                  type="text"
+                  value={balanceForm.receipt_number}
+                  onChange={(e) => setBalanceForm({ ...balanceForm, receipt_number: e.target.value })}
+                  placeholder="e.g. QK892716 or CASH"
+                  className="w-full px-3 py-2 rounded-xl border border-gray-200 focus:ring-2 focus:ring-sky-500 font-mono"
+                />
+              </div>
+
+              <div className="flex justify-end gap-2 pt-2">
+                <button
+                  type="button"
+                  onClick={() => setBalanceModalOrder(null)}
+                  className="px-4 py-2 border border-gray-200 text-gray-600 rounded-xl hover:bg-gray-50 transition"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  disabled={balanceSubmitting}
+                  className="px-5 py-2 bg-emerald-600 hover:bg-emerald-700 text-white font-bold rounded-xl transition shadow-xs flex items-center gap-1.5"
+                >
+                  {balanceSubmitting ? (
+                    <>
+                      <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                      <span>Recording...</span>
+                    </>
+                  ) : (
+                    <>
+                      <Check className="w-3.5 h-3.5" />
+                      <span>Confirm Settlement</span>
+                    </>
+                  )}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* ------------------------------------------------------------- */}
+      {/* MODAL 2: PRINTABLE BAG INVOICE & DELIVERY SLIP */}
+      {/* ------------------------------------------------------------- */}
+      {printableOrder && (
+        <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-xs flex items-center justify-center p-4">
+          <div className="bg-white rounded-3xl shadow-2xl border border-gray-200 max-w-lg w-full p-8 space-y-6 max-h-[90vh] overflow-y-auto">
+            <div className="flex justify-between items-start border-b border-gray-200 pb-4">
+              <div>
+                <span className="text-[10px] uppercase font-mono tracking-widest text-gray-400 block">STORE DELIVERY SLIP</span>
+                <h3 className="text-xl font-black text-gray-900">Belo.Creations</h3>
+                <p className="text-xs text-gray-500">Order ID: {printableOrder.order_id}</p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setPrintableOrder(null)}
+                className="text-gray-400 hover:text-gray-600"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <div className="grid grid-cols-2 gap-4 text-xs">
+              <div className="space-y-0.5">
+                <span className="text-gray-400 uppercase text-[10px] font-bold">Customer:</span>
+                <div className="font-bold text-gray-800">{printableOrder.customer_name}</div>
+                <div className="text-gray-500">{printableOrder.customer_phone}</div>
+                <div className="text-gray-500">{printableOrder.customer_email}</div>
+              </div>
+              <div className="space-y-0.5 text-right">
+                <span className="text-gray-400 uppercase text-[10px] font-bold">Date &amp; Status:</span>
+                <div className="text-gray-700">{new Date(printableOrder.created_at).toLocaleDateString()}</div>
+                <div className="font-bold text-emerald-700 uppercase">{printableOrder.status}</div>
+              </div>
+            </div>
+
+            <div className="border border-gray-200 rounded-xl overflow-hidden text-xs">
+              <div className="bg-gray-50 px-3 py-2 font-bold text-gray-700 border-b border-gray-200 flex justify-between">
+                <span>Bag Item</span>
+                <span>Subtotal</span>
+              </div>
+              <div className="divide-y divide-gray-100 p-2">
+                {printableOrder.items?.map((it, idx) => (
+                  <div key={idx} className="py-2 px-1 flex justify-between text-gray-700">
+                    <span>{it.quantity}x {it.product_title}</span>
+                    <span className="font-bold">KES {(it.price * it.quantity).toLocaleString()}</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+
+            <div className="bg-gray-50 rounded-xl p-4 space-y-1.5 text-xs">
+              <div className="flex justify-between text-gray-600">
+                <span>Total Bag Value:</span>
+                <span className="font-bold text-gray-900">KES {Number(printableOrder.total_amount).toLocaleString()}</span>
+              </div>
+              <div className="flex justify-between text-emerald-700 font-semibold">
+                <span>Deposit Amount Paid:</span>
+                <span>KES {Number(printableOrder.deposit_amount).toLocaleString()}</span>
+              </div>
+              <div className="flex justify-between text-amber-700 font-black text-sm pt-1 border-t border-gray-200">
+                <span>Balance to Collect on Delivery:</span>
+                <span>KES {Number(printableOrder.balance_due).toLocaleString()}</span>
+              </div>
+            </div>
+
+            <div className="flex gap-2">
+              <button
+                type="button"
+                onClick={() => window.print()}
+                className="flex-1 py-3 bg-slate-900 hover:bg-slate-800 text-white font-bold rounded-xl text-xs transition flex items-center justify-center gap-2"
+              >
+                <Printer className="w-4 h-4" /> Print Delivery Slip
+              </button>
+              <button
+                type="button"
+                onClick={() => setPrintableOrder(null)}
+                className="px-4 py-3 border border-gray-200 text-gray-700 rounded-xl text-xs hover:bg-gray-50 transition"
+              >
+                Close
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ------------------------------------------------------------- */}
+      {/* MODAL 3: PRODUCT CREATE / EDIT */}
       {/* ------------------------------------------------------------- */}
       {isProductModalOpen && (
         <div className="fixed inset-0 z-50 bg-black/50 backdrop-blur-xs flex items-center justify-center p-4">

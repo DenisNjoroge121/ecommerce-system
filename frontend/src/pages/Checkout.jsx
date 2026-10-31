@@ -1,11 +1,12 @@
-import { useState } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { Link } from 'react-router-dom';
 import { useCartStore } from '../store/useCartStore';
 import { useAuthStore } from '../store/useAuthStore';
 import API from '../api';
 import {
   ShoppingBag, ArrowLeft, Trash2, Smartphone, CreditCard,
-  CheckCircle2, AlertCircle, Loader2, ShieldCheck, Printer
+  CheckCircle2, AlertCircle, Loader2, ShieldCheck, Printer,
+  Clock, Zap, Check
 } from 'lucide-react';
 
 export default function Checkout() {
@@ -13,6 +14,7 @@ export default function Checkout() {
   const user = useAuthStore((state) => state.user);
 
   const [paymentMethod, setPaymentMethod] = useState('mpesa'); // 'mpesa' | 'card'
+  const [paymentMode, setPaymentMode] = useState('full'); // 'full' | 'deposit_30' | 'deposit_50'
 
   const [formData, setFormData] = useState({
     customer_name: user?.username || '',
@@ -30,9 +32,36 @@ export default function Checkout() {
 
   const [submitting, setSubmitting] = useState(false);
   const [errorMsg, setErrorMsg] = useState('');
-  const [paymentResult, setPaymentResult] = useState(null);
 
-  const totalAmount = getTotal();
+  // Waiting for M-Pesa PIN state
+  const [waitingForPin, setWaitingForPin] = useState(false);
+  const [stkData, setStkData] = useState(null);
+  const [pollSeconds, setPollSeconds] = useState(0);
+  const [simulatingPin, setSimulatingPin] = useState(false);
+
+  // Final successful receipt state
+  const [completedPayment, setCompletedPayment] = useState(null);
+
+  const pollIntervalRef = useRef(null);
+  const timerIntervalRef = useRef(null);
+
+  const bagTotal = getTotal();
+
+  // Calculate deposit amount and balance due based on chosen paymentMode
+  let payAmount = bagTotal;
+  let balanceDue = 0;
+
+  if (paymentMode === 'deposit_30') {
+    payAmount = Math.round(bagTotal * 0.3);
+    balanceDue = Math.max(0, bagTotal - payAmount);
+  } else if (paymentMode === 'deposit_50') {
+    payAmount = Math.round(bagTotal * 0.5);
+    balanceDue = Math.max(0, bagTotal - payAmount);
+  } else {
+    // 'full'
+    payAmount = bagTotal;
+    balanceDue = 0;
+  }
 
   const handleInputChange = (e) => {
     setFormData({
@@ -68,6 +97,97 @@ export default function Checkout() {
     return 'Card';
   };
 
+  // -------------------------------------------------------------
+  // REAL-TIME POLLING FOR M-PESA PIN STATUS
+  // -------------------------------------------------------------
+  useEffect(() => {
+    if (!waitingForPin || !stkData?.checkout_id) return;
+
+    timerIntervalRef.current = setInterval(() => {
+      setPollSeconds((prev) => prev + 1);
+    }, 1000);
+
+    pollIntervalRef.current = setInterval(async () => {
+      try {
+        const res = await API.get('payments/status/', {
+          params: { checkout_id: stkData.checkout_id, order_id: stkData.order_id },
+        });
+
+        if (res.data.is_complete) {
+          if (pollIntervalRef.current) clearInterval(pollIntervalRef.current);
+          if (timerIntervalRef.current) clearInterval(timerIntervalRef.current);
+          setWaitingForPin(false);
+          setCompletedPayment({
+            method: 'mpesa',
+            receipt_number: res.data.receipt_number,
+            amount_paid: res.data.amount_paid,
+            deposit_amount: res.data.deposit_amount,
+            balance_due: res.data.balance_due,
+            total_amount: res.data.total_amount,
+            order_id: res.data.order_id,
+            order_status: res.data.order_status,
+            phone: stkData.phone,
+            items: stkData.itemsSnapshot || [],
+            payment_type: res.data.payment_type,
+          });
+          clearCart();
+        } else if (res.data.failed) {
+          if (pollIntervalRef.current) clearInterval(pollIntervalRef.current);
+          if (timerIntervalRef.current) clearInterval(timerIntervalRef.current);
+          setWaitingForPin(false);
+          setErrorMsg(res.data.message || 'M-Pesa transaction was cancelled or timed out.');
+        }
+      } catch (err) {
+        console.warn('Status poll error:', err);
+      }
+    }, 2500);
+
+    return () => {
+      if (pollIntervalRef.current) clearInterval(pollIntervalRef.current);
+      if (timerIntervalRef.current) clearInterval(timerIntervalRef.current);
+    };
+  }, [waitingForPin, stkData, clearCart]);
+
+  // -------------------------------------------------------------
+  // SIMULATE ENTERING PIN (DEMO / TEST / LOCAL MODE)
+  // -------------------------------------------------------------
+  const handleSimulatePin = async () => {
+    if (!stkData?.checkout_id) return;
+    setSimulatingPin(true);
+    try {
+      const res = await API.post('payments/confirm-simulated/', {
+        checkout_id: stkData.checkout_id,
+        order_id: stkData.order_id,
+      });
+
+      if (pollIntervalRef.current) clearInterval(pollIntervalRef.current);
+      if (timerIntervalRef.current) clearInterval(timerIntervalRef.current);
+      setWaitingForPin(false);
+      setCompletedPayment({
+        method: 'mpesa',
+        receipt_number: res.data.receipt_number,
+        amount_paid: res.data.amount_paid,
+        deposit_amount: res.data.deposit_amount,
+        balance_due: res.data.balance_due,
+        total_amount: res.data.order?.total_amount || bagTotal,
+        order_id: res.data.order?.order_id || stkData.order_id,
+        order_status: res.data.order_status,
+        phone: stkData.phone,
+        items: stkData.itemsSnapshot || [],
+        payment_type: stkData.payment_type,
+      });
+      clearCart();
+    } catch (err) {
+      console.error('Simulation error:', err);
+      setErrorMsg('Failed to simulate PIN entry. Please retry.');
+    } finally {
+      setSimulatingPin(false);
+    }
+  };
+
+  // -------------------------------------------------------------
+  // SUBMIT ORDER & TRIGGER PAYMENT
+  // -------------------------------------------------------------
   const handleSubmitOrder = async (e) => {
     e.preventDefault();
     if (cart.length === 0) {
@@ -79,12 +199,19 @@ export default function Checkout() {
     setErrorMsg('');
 
     try {
+      const itemsSnapshot = [...cart];
+      const isDeposit = paymentMode !== 'full';
+      const actualDeposit = isDeposit ? payAmount : payAmount;
+      const actualBalance = isDeposit ? balanceDue : 0;
+
       // 1. Create order in Django backend
       const orderPayload = {
         customer_name: formData.customer_name,
         customer_email: formData.customer_email,
         customer_phone: formData.customer_phone,
-        total_amount: Number(totalAmount).toFixed(2),
+        total_amount: Number(bagTotal).toFixed(2),
+        deposit_amount: Number(actualDeposit).toFixed(2),
+        balance_due: Number(actualBalance).toFixed(2),
         status: 'pending',
         items: cart.map((item) => ({
           product: item.id,
@@ -96,9 +223,8 @@ export default function Checkout() {
       const orderRes = await API.post('orders/', orderPayload);
       const createdOrder = orderRes.data;
 
-      // 2. Process Chosen Payment Method
+      // 2. Process Selected Payment Method
       if (paymentMethod === 'mpesa') {
-        // M-PESA STK PUSH
         let phone = formData.customer_phone.trim().replace(/[^0-9]/g, '');
         if (phone.startsWith('0')) {
           phone = '254' + phone.slice(1);
@@ -111,15 +237,24 @@ export default function Checkout() {
         const stkRes = await API.post('payments/stk-push/', {
           phone_number: phone,
           order_id: createdOrder.order_id,
+          amount: payAmount,
+          payment_type: isDeposit ? 'deposit' : 'full',
         });
 
-        setPaymentResult({
-          method: 'mpesa',
-          order: createdOrder,
-          stk: stkRes.data,
+        setStkData({
+          checkout_id: stkRes.data.checkout_id,
+          order_id: createdOrder.order_id,
           phone: formData.customer_phone,
-          amount: totalAmount,
+          amount: payAmount,
+          payment_type: isDeposit ? 'deposit' : 'full',
+          bagTotal,
+          balanceDue: actualBalance,
+          itemsSnapshot,
+          CustomerMessage: stkRes.data.CustomerMessage,
         });
+
+        setPollSeconds(0);
+        setWaitingForPin(true);
       } else {
         // CREDIT / DEBIT CARD PAYMENT
         const cardRes = await API.post('payments/card/', {
@@ -128,17 +263,26 @@ export default function Checkout() {
           expiry_date: cardData.expiryDate,
           cvv: cardData.cvv,
           cardholder_name: cardData.cardHolder || formData.customer_name,
+          amount: payAmount,
+          payment_type: isDeposit ? 'deposit' : 'full',
         });
 
-        setPaymentResult({
+        setCompletedPayment({
           method: 'card',
-          order: createdOrder,
-          cardDetails: cardRes.data,
-          amount: totalAmount,
+          receipt_number: cardRes.data.receipt_number,
+          amount_paid: cardRes.data.amount,
+          deposit_amount: cardRes.data.deposit_amount,
+          balance_due: cardRes.data.balance_due,
+          total_amount: bagTotal,
+          order_id: createdOrder.order_id,
+          order_status: cardRes.data.order_status,
+          card_last4: cardRes.data.card_last4,
+          cardholder_name: cardRes.data.cardholder_name,
+          items: itemsSnapshot,
         });
-      }
 
-      clearCart();
+        clearCart();
+      }
     } catch (err) {
       console.error('Checkout error:', err);
       setErrorMsg(
@@ -151,84 +295,196 @@ export default function Checkout() {
     }
   };
 
-  // SUCCESS / RECEIPT VIEW
-  if (paymentResult) {
+  // -------------------------------------------------------------
+  // SCREEN 1: WAITING FOR M-PESA PIN ENTRY (REAL-TIME STATUS)
+  // -------------------------------------------------------------
+  if (waitingForPin && stkData) {
     return (
       <div className="max-w-xl mx-auto py-10 px-4">
-        <div className="bg-white rounded-3xl border border-gray-100 shadow-sm p-8 space-y-6">
+        <div className="bg-white rounded-3xl border border-gray-100 shadow-lg p-8 space-y-6 relative overflow-hidden">
+          <div className="absolute top-0 left-0 right-0 h-1.5 bg-linear-to-r from-emerald-400 via-teal-500 to-emerald-600 animate-pulse" />
+
+          <div className="text-center space-y-3">
+            <div className="relative inline-flex items-center justify-center">
+              <div className="w-20 h-20 bg-emerald-50 text-emerald-600 rounded-3xl flex items-center justify-center shadow-inner relative z-10">
+                <Smartphone className="w-10 h-10 animate-bounce" />
+              </div>
+              <div className="absolute inset-0 rounded-3xl bg-emerald-400/20 animate-ping -z-0" />
+            </div>
+
+            <div>
+              <span className="inline-flex items-center gap-1.5 px-3 py-1 bg-amber-50 text-amber-700 text-xs font-bold rounded-full border border-amber-200 mb-2">
+                <Clock className="w-3.5 h-3.5 animate-spin" />
+                <span>Waiting for M-Pesa PIN ({pollSeconds}s)</span>
+              </span>
+              <h1 className="text-2xl font-black text-gray-900 tracking-tight">Check Your Phone Screen</h1>
+              <p className="text-xs text-gray-500 mt-1 max-w-sm mx-auto">
+                An M-Pesa prompt has been dispatched to{' '}
+                <strong className="text-gray-800">{stkData.phone}</strong>.
+              </p>
+            </div>
+          </div>
+
+          <div className="bg-gray-50 rounded-2xl p-5 border border-gray-100 space-y-3 text-xs">
+            <div className="flex justify-between items-center pb-2 border-b border-gray-200">
+              <span className="text-gray-500">Order ID:</span>
+              <span className="font-mono font-bold text-gray-900">{stkData.order_id?.slice(0, 8)}</span>
+            </div>
+            <div className="flex justify-between items-center">
+              <span className="text-gray-500">Total Bag Value:</span>
+              <span className="font-bold text-gray-800">KES {Number(stkData.bagTotal).toLocaleString()}</span>
+            </div>
+            <div className="flex justify-between items-center text-emerald-700 font-bold bg-emerald-50/70 p-2.5 rounded-xl border border-emerald-100">
+              <span>Amount Due Now ({stkData.payment_type === 'deposit' ? 'Deposit' : 'Full Payment'}):</span>
+              <span className="text-sm">KES {Number(stkData.amount).toLocaleString()}</span>
+            </div>
+            {stkData.balanceDue > 0 && (
+              <div className="flex justify-between items-center text-amber-700 font-medium">
+                <span>Remaining Balance on Delivery:</span>
+                <span>KES {Number(stkData.balanceDue).toLocaleString()}</span>
+              </div>
+            )}
+          </div>
+
+          <div className="bg-sky-50/80 border border-sky-100 rounded-2xl p-4 text-xs text-sky-950 space-y-2">
+            <h4 className="font-bold text-sky-900 flex items-center gap-1.5">
+              <Zap className="w-4 h-4 text-sky-600" /> Instructions to complete payment:
+            </h4>
+            <ol className="list-decimal list-inside space-y-1 text-sky-800 text-[11px] leading-relaxed">
+              <li>Unlock your phone and look for the Safaricom pop-up prompt.</li>
+              <li>Enter your secret <strong>M-Pesa PIN</strong> and press OK.</li>
+              <li>Wait 3 seconds &mdash; this page will <strong>automatically confirm and issue your receipt</strong>!</li>
+            </ol>
+          </div>
+
+          <div className="pt-2 border-t border-gray-100 space-y-2 text-center">
+            <button
+              type="button"
+              onClick={handleSimulatePin}
+              disabled={simulatingPin}
+              className="w-full py-3 bg-emerald-600 hover:bg-emerald-700 disabled:bg-emerald-400 text-white font-bold rounded-xl text-xs transition shadow-sm flex items-center justify-center gap-2"
+            >
+              {simulatingPin ? (
+                <>
+                  <Loader2 className="w-4 h-4 animate-spin" />
+                  <span>Verifying PIN with Safaricom...</span>
+                </>
+              ) : (
+                <>
+                  <Check className="w-4 h-4" />
+                  <span>Simulate Entering PIN &amp; Confirm (Test Demo)</span>
+                </>
+              )}
+            </button>
+            <p className="text-[10px] text-gray-400">
+              In test / local development environments without an active webhook, click the button above to simulate entering your PIN on your phone.
+            </p>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  // -------------------------------------------------------------
+  // SCREEN 2: FINAL CONFIRMED PAYMENT RECEIPT
+  // -------------------------------------------------------------
+  if (completedPayment) {
+    const isPartial = completedPayment.balance_due > 0;
+
+    return (
+      <div className="max-w-xl mx-auto py-10 px-4">
+        <div className="bg-white rounded-3xl border border-gray-100 shadow-md p-8 space-y-6">
           <div className="w-16 h-16 bg-emerald-50 text-emerald-600 rounded-2xl flex items-center justify-center mx-auto shadow-xs">
             <CheckCircle2 className="w-10 h-10" />
           </div>
 
           <div className="text-center space-y-1">
-            <h1 className="text-2xl font-bold text-gray-900">
-              {paymentResult.method === 'card' ? 'Payment Successful!' : 'Order Placed!'}
+            <div className="inline-block px-3 py-0.5 rounded-full text-[11px] font-bold uppercase tracking-wider mb-1 bg-emerald-100 text-emerald-800">
+              {isPartial ? 'Deposit Confirmed (Partial Payment)' : 'Payment Complete & Verified'}
+            </div>
+            <h1 className="text-2xl font-black text-gray-900">
+              {isPartial ? 'Deposit Received Successfully!' : 'Transaction Completed!'}
             </h1>
             <p className="text-xs text-gray-500">
-              Order ID:{' '}
-              <span className="font-mono font-semibold text-slate-800">
-                {paymentResult.order?.order_id?.slice(0, 8)}
-              </span>
+              Order Ref: <span className="font-mono font-bold text-gray-800">{completedPayment.order_id?.slice(0, 8)}</span>
             </p>
           </div>
 
-          {/* Details Card */}
-          {paymentResult.method === 'mpesa' ? (
-            <div className="bg-sky-50 border border-sky-100 rounded-2xl p-5 text-sm text-sky-950 space-y-3">
-              <div className="flex items-center gap-2 font-bold text-sky-900">
-                <Smartphone className="w-5 h-5 text-sky-600" />
-                <span>M-Pesa STK Prompt Sent</span>
+          <div className="bg-slate-900 text-white rounded-2xl p-6 space-y-4">
+            <div className="flex justify-between items-start border-b border-slate-800 pb-3">
+              <div>
+                <span className="text-xs text-slate-400 block">Payment Method</span>
+                <span className="text-sm font-semibold flex items-center gap-1.5 mt-0.5">
+                  {completedPayment.method === 'mpesa' ? (
+                    <>
+                      <Smartphone className="w-4 h-4 text-emerald-400" /> M-Pesa STK Push
+                    </>
+                  ) : (
+                    <>
+                      <CreditCard className="w-4 h-4 text-sky-400" /> Card ({completedPayment.card_last4 ? `•••• ${completedPayment.card_last4}` : 'Verified'})
+                    </>
+                  )}
+                </span>
               </div>
-              <p className="text-xs text-sky-800 leading-relaxed">
-                A prompt has been sent to your phone (<strong>{paymentResult.phone}</strong>). Please enter your M-Pesa PIN on your phone to complete payment of{' '}
-                <strong>KES {Number(paymentResult.amount).toLocaleString()}</strong>.
-              </p>
-              <div className="text-[11px] text-sky-700 bg-white/60 p-2.5 rounded-xl">
-                Status: {paymentResult.stk?.status || 'Pending confirmation'}
+              <div className="text-right">
+                <span className="text-xs text-slate-400 block">Status</span>
+                <span className={`text-xs font-bold px-2.5 py-0.5 rounded-full inline-block mt-0.5 ${
+                  isPartial ? 'bg-amber-500/20 text-amber-300' : 'bg-emerald-500/20 text-emerald-300'
+                }`}>
+                  {isPartial ? 'DEPOSIT PAID' : 'SETTLED IN FULL'}
+                </span>
               </div>
             </div>
-          ) : (
-            <div className="bg-slate-900 text-white rounded-2xl p-6 space-y-4">
-              <div className="flex justify-between items-start border-b border-slate-800 pb-3">
-                <div>
-                  <span className="text-xs text-slate-400 block">Payment Method</span>
-                  <span className="text-sm font-semibold flex items-center gap-1.5 mt-0.5">
-                    <CreditCard className="w-4 h-4 text-sky-400" /> Card ({paymentResult.cardDetails?.card_last4 ? `•••• ${paymentResult.cardDetails.card_last4}` : 'Verified'})
-                  </span>
-                </div>
-                <div className="text-right">
-                  <span className="text-xs text-slate-400 block">Status</span>
-                  <span className="text-xs font-bold text-emerald-400 bg-emerald-950/60 px-2 py-0.5 rounded-full inline-block mt-0.5">
-                    PAID
-                  </span>
-                </div>
-              </div>
 
-              <div className="space-y-1.5 text-xs text-slate-300">
+            <div className="space-y-2 text-xs text-slate-300">
+              <div className="flex justify-between">
+                <span>Receipt Number:</span>
+                <span className="font-mono font-bold text-emerald-400">{completedPayment.receipt_number}</span>
+              </div>
+              {completedPayment.phone && (
                 <div className="flex justify-between">
-                  <span>Receipt Number:</span>
-                  <span className="font-mono font-semibold text-white">{paymentResult.cardDetails?.receipt_number}</span>
+                  <span>Phone Debited:</span>
+                  <span className="text-white font-medium">{completedPayment.phone}</span>
                 </div>
-                <div className="flex justify-between">
-                  <span>Cardholder:</span>
-                  <span className="text-white">{paymentResult.cardDetails?.cardholder_name}</span>
+              )}
+              <div className="flex justify-between pt-2 border-t border-slate-800">
+                <span>Total Bag Value:</span>
+                <span className="text-white font-bold">KES {Number(completedPayment.total_amount).toLocaleString()}</span>
+              </div>
+              <div className="flex justify-between text-emerald-400 font-bold">
+                <span>Amount Paid Now (Deposit):</span>
+                <span className="text-sm">KES {Number(completedPayment.amount_paid).toLocaleString()}</span>
+              </div>
+              {isPartial && (
+                <div className="flex justify-between text-amber-300 font-bold bg-amber-950/40 p-2.5 rounded-xl border border-amber-800/50">
+                  <span>Remaining Balance on Delivery:</span>
+                  <span className="text-sm">KES {Number(completedPayment.balance_due).toLocaleString()}</span>
                 </div>
-                <div className="flex justify-between">
-                  <span>Total Amount Paid:</span>
-                  <span className="text-sky-400 font-bold text-sm">KES {Number(paymentResult.amount).toLocaleString()}</span>
-                </div>
+              )}
+            </div>
+          </div>
+
+          {completedPayment.items && completedPayment.items.length > 0 && (
+            <div className="border border-gray-100 rounded-2xl p-4 bg-gray-50/50 space-y-2">
+              <h4 className="text-xs font-bold text-gray-700 uppercase tracking-wider">Bag Contents:</h4>
+              <div className="divide-y divide-gray-100 text-xs">
+                {completedPayment.items.map((it, idx) => (
+                  <div key={idx} className="py-2 flex justify-between items-center text-gray-600">
+                    <span>{it.quantity}x {it.title}</span>
+                    <span className="font-semibold text-gray-800">KES {(it.price * it.quantity).toLocaleString()}</span>
+                  </div>
+                ))}
               </div>
             </div>
           )}
 
-          {/* Action Buttons */}
           <div className="flex flex-col sm:flex-row gap-3 pt-2">
             <button
               type="button"
               onClick={() => window.print()}
               className="flex-1 py-3 px-4 bg-gray-100 hover:bg-gray-200 text-gray-800 font-semibold rounded-xl text-xs transition flex items-center justify-center gap-1.5"
             >
-              <Printer className="w-4 h-4" /> Print Receipt
+              <Printer className="w-4 h-4" /> Print Official Receipt
             </button>
             <Link
               to="/"
@@ -242,6 +498,9 @@ export default function Checkout() {
     );
   }
 
+  // -------------------------------------------------------------
+  // SCREEN 3: NORMAL CHECKOUT FORM
+  // -------------------------------------------------------------
   return (
     <div className="max-w-5xl mx-auto py-6 space-y-6">
       <Link
@@ -253,7 +512,7 @@ export default function Checkout() {
 
       <div className="flex items-center justify-between">
         <h1 className="text-2xl font-bold text-gray-900">Secure Checkout</h1>
-        <span className="text-xs text-gray-500">{cart.length} item(s)</span>
+        <span className="text-xs text-gray-500">{cart.length} item(s) in bag</span>
       </div>
 
       {errorMsg && (
@@ -279,9 +538,7 @@ export default function Checkout() {
         </div>
       ) : (
         <form onSubmit={handleSubmitOrder} className="grid grid-cols-1 lg:grid-cols-3 gap-8">
-          {/* Left Column: Customer details & Payment Options */}
           <div className="lg:col-span-2 space-y-6">
-            {/* Customer Information Form */}
             <div className="bg-white rounded-2xl border border-gray-100 shadow-xs p-6 space-y-4">
               <h2 className="font-bold text-gray-900 text-base">1. Customer Information</h2>
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
@@ -296,7 +553,7 @@ export default function Checkout() {
                     value={formData.customer_name}
                     onChange={handleInputChange}
                     placeholder="e.g. Denis Njoroge"
-                    className="w-full px-4 py-2.5 rounded-xl border border-gray-200 text-xs focus:outline-hidden focus:ring-2 focus:ring-sky-500 focus:border-transparent transition"
+                    className="w-full px-4 py-2.5 rounded-xl border border-gray-200 text-xs focus:ring-2 focus:ring-sky-500 focus:outline-hidden transition"
                   />
                 </div>
 
@@ -311,13 +568,13 @@ export default function Checkout() {
                     value={formData.customer_email}
                     onChange={handleInputChange}
                     placeholder="denis@example.com"
-                    className="w-full px-4 py-2.5 rounded-xl border border-gray-200 text-xs focus:outline-hidden focus:ring-2 focus:ring-sky-500 focus:border-transparent transition"
+                    className="w-full px-4 py-2.5 rounded-xl border border-gray-200 text-xs focus:ring-2 focus:ring-sky-500 focus:outline-hidden transition"
                   />
                 </div>
 
                 <div className="sm:col-span-2">
                   <label className="block text-xs font-semibold text-gray-700 uppercase tracking-wider mb-1.5">
-                    Phone Number (Contact / Delivery)
+                    Phone Number (M-Pesa / Delivery)
                   </label>
                   <input
                     type="tel"
@@ -325,23 +582,102 @@ export default function Checkout() {
                     required
                     value={formData.customer_phone}
                     onChange={handleInputChange}
-                    placeholder="0712345678 or +254712345678"
-                    className="w-full px-4 py-2.5 rounded-xl border border-gray-200 text-xs focus:outline-hidden focus:ring-2 focus:ring-sky-500 focus:border-transparent transition"
+                    placeholder="0712345678 or 254712345678"
+                    className="w-full px-4 py-2.5 rounded-xl border border-gray-200 text-xs focus:ring-2 focus:ring-sky-500 focus:outline-hidden transition"
                   />
                 </div>
               </div>
             </div>
 
-            {/* Payment Method Selector */}
             <div className="bg-white rounded-2xl border border-gray-100 shadow-xs p-6 space-y-4">
               <div className="flex items-center justify-between">
-                <h2 className="font-bold text-gray-900 text-base">2. Payment Method</h2>
+                <div>
+                  <h2 className="font-bold text-gray-900 text-base">2. Payment Schedule</h2>
+                  <p className="text-xs text-gray-500">Choose to pay in full or pay a deposit now and balance on delivery.</p>
+                </div>
+                <span className="px-2.5 py-1 bg-emerald-50 text-emerald-700 text-[11px] font-bold rounded-lg border border-emerald-100">
+                  Flexible Terms
+                </span>
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                <button
+                  type="button"
+                  onClick={() => setPaymentMode('full')}
+                  className={`p-3.5 rounded-xl border text-left transition ${
+                    paymentMode === 'full'
+                      ? 'border-slate-900 bg-slate-900 text-white shadow-xs'
+                      : 'border-gray-200 hover:border-gray-300 bg-white text-gray-800'
+                  }`}
+                >
+                  <div className="font-bold text-xs">100% Full Payment</div>
+                  <div className={`text-[11px] mt-1 ${paymentMode === 'full' ? 'text-slate-300' : 'text-gray-500'}`}>
+                    KES {Number(bagTotal).toLocaleString()}
+                  </div>
+                  <div className="text-[10px] text-emerald-400 font-medium mt-1">No balance due</div>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => setPaymentMode('deposit_30')}
+                  className={`p-3.5 rounded-xl border text-left transition ${
+                    paymentMode === 'deposit_30'
+                      ? 'border-emerald-600 bg-emerald-50 ring-2 ring-emerald-600/20 text-emerald-950 shadow-xs'
+                      : 'border-gray-200 hover:border-gray-300 bg-white text-gray-800'
+                  }`}
+                >
+                  <div className="font-bold text-xs">30% Deposit</div>
+                  <div className="text-[11px] font-bold text-emerald-700 mt-1">
+                    Pay KES {Number(Math.round(bagTotal * 0.3)).toLocaleString()}
+                  </div>
+                  <div className="text-[10px] text-gray-500 mt-1">
+                    Balance: KES {Number(bagTotal - Math.round(bagTotal * 0.3)).toLocaleString()}
+                  </div>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => setPaymentMode('deposit_50')}
+                  className={`p-3.5 rounded-xl border text-left transition ${
+                    paymentMode === 'deposit_50'
+                      ? 'border-emerald-600 bg-emerald-50 ring-2 ring-emerald-600/20 text-emerald-950 shadow-xs'
+                      : 'border-gray-200 hover:border-gray-300 bg-white text-gray-800'
+                  }`}
+                >
+                  <div className="font-bold text-xs">50% Deposit</div>
+                  <div className="text-[11px] font-bold text-emerald-700 mt-1">
+                    Pay KES {Number(Math.round(bagTotal * 0.5)).toLocaleString()}
+                  </div>
+                  <div className="text-[10px] text-gray-500 mt-1">
+                    Balance: KES {Number(bagTotal - Math.round(bagTotal * 0.5)).toLocaleString()}
+                  </div>
+                </button>
+              </div>
+
+              <div className="p-4 bg-emerald-50/60 rounded-xl border border-emerald-100 flex flex-col sm:flex-row items-center justify-between gap-3 text-xs">
+                <div className="space-y-0.5">
+                  <span className="text-gray-500 block">Total Bag Amount:</span>
+                  <span className="text-sm font-black text-gray-900">KES {Number(bagTotal).toLocaleString()}</span>
+                </div>
+                <div className="space-y-0.5 sm:text-center">
+                  <span className="text-emerald-700 font-semibold block">Deposit to Pay Now:</span>
+                  <span className="text-sm font-black text-emerald-700">KES {Number(payAmount).toLocaleString()}</span>
+                </div>
+                <div className="space-y-0.5 sm:text-right">
+                  <span className="text-amber-700 font-semibold block">Remaining Balance:</span>
+                  <span className="text-sm font-black text-amber-700">KES {Number(balanceDue).toLocaleString()}</span>
+                </div>
+              </div>
+            </div>
+
+            <div className="bg-white rounded-2xl border border-gray-100 shadow-xs p-6 space-y-4">
+              <div className="flex items-center justify-between">
+                <h2 className="font-bold text-gray-900 text-base">3. Payment Method</h2>
                 <span className="text-xs text-gray-400 flex items-center gap-1">
                   <ShieldCheck className="w-4 h-4 text-emerald-600" /> 256-Bit Encrypted
                 </span>
               </div>
 
-              {/* Tab options */}
               <div className="grid grid-cols-2 gap-3">
                 <button
                   type="button"
@@ -380,10 +716,8 @@ export default function Checkout() {
                 </button>
               </div>
 
-              {/* Conditional Card Fields */}
               {paymentMethod === 'card' && (
                 <div className="pt-4 border-t border-gray-100 space-y-4">
-                  {/* Card visual banner */}
                   <div className="bg-linear-to-r from-slate-900 to-slate-800 text-white p-5 rounded-2xl shadow-sm space-y-4">
                     <div className="flex justify-between items-center text-xs">
                       <span className="font-mono tracking-widest text-slate-400">DEBIT / CREDIT</span>
@@ -404,7 +738,6 @@ export default function Checkout() {
                     </div>
                   </div>
 
-                  {/* Card Form Inputs */}
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                     <div className="sm:col-span-2">
                       <label className="block text-xs font-semibold text-gray-700 uppercase tracking-wider mb-1">
@@ -467,10 +800,9 @@ export default function Checkout() {
             </div>
           </div>
 
-          {/* Right Column: Order Summary & Pay Action */}
           <div className="space-y-4">
             <div className="bg-white rounded-2xl border border-gray-100 shadow-xs p-6 space-y-4">
-              <h3 className="font-bold text-gray-900 text-base">Order Summary</h3>
+              <h3 className="font-bold text-gray-900 text-base">Bag Summary</h3>
 
               <div className="divide-y divide-gray-100 max-h-60 overflow-y-auto pr-1">
                 {cart.map((item) => (
@@ -495,20 +827,31 @@ export default function Checkout() {
                 ))}
               </div>
 
-              {/* Price Breakdown */}
               <div className="pt-3 border-t border-gray-100 space-y-2 text-xs text-gray-500">
                 <div className="flex justify-between">
-                  <span>Subtotal</span>
-                  <span>KES {Number(totalAmount).toLocaleString()}</span>
+                  <span>Bag Subtotal</span>
+                  <span>KES {Number(bagTotal).toLocaleString()}</span>
                 </div>
                 <div className="flex justify-between">
-                  <span>Shipping</span>
+                  <span>Delivery / Shipping</span>
                   <span className="text-emerald-600 font-medium">Free</span>
                 </div>
-                <div className="flex justify-between text-sm font-bold text-gray-900 pt-2 border-t border-gray-100">
-                  <span>Total Amount</span>
-                  <span className="text-sky-600">KES {Number(totalAmount).toLocaleString()}</span>
+                <div className="flex justify-between text-xs font-bold text-gray-900 pt-1 border-t border-gray-100">
+                  <span>Total Bag Value</span>
+                  <span>KES {Number(bagTotal).toLocaleString()}</span>
                 </div>
+
+                <div className="flex justify-between text-sm font-black text-emerald-600 pt-2 border-t border-gray-100">
+                  <span>Pay Now ({paymentMode === 'full' ? 'Full' : 'Deposit'})</span>
+                  <span>KES {Number(payAmount).toLocaleString()}</span>
+                </div>
+
+                {balanceDue > 0 && (
+                  <div className="flex justify-between text-xs font-semibold text-amber-700 bg-amber-50 p-2 rounded-lg">
+                    <span>Balance on Delivery</span>
+                    <span>KES {Number(balanceDue).toLocaleString()}</span>
+                  </div>
+                )}
               </div>
 
               <button
@@ -523,17 +866,19 @@ export default function Checkout() {
                 {submitting ? (
                   <>
                     <Loader2 className="w-4 h-4 animate-spin" />
-                    <span>Processing Payment...</span>
+                    <span>Initiating Payment...</span>
                   </>
                 ) : paymentMethod === 'mpesa' ? (
                   <>
                     <Smartphone className="w-4 h-4" />
-                    <span>Pay KES {Number(totalAmount).toLocaleString()} with M-Pesa</span>
+                    <span>
+                      Pay KES {Number(payAmount).toLocaleString()} with M-Pesa
+                    </span>
                   </>
                 ) : (
                   <>
                     <CreditCard className="w-4 h-4" />
-                    <span>Confirm Card Payment of KES {Number(totalAmount).toLocaleString()}</span>
+                    <span>Confirm Card Payment of KES {Number(payAmount).toLocaleString()}</span>
                   </>
                 )}
               </button>

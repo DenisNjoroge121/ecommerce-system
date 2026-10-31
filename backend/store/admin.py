@@ -29,14 +29,14 @@ class OrderItemInline(admin.TabularInline):
 class TransactionInline(admin.TabularInline):
     model = Transaction
     extra = 0
-    readonly_fields = ('payment_method', 'checkout_request_id', 'receipt_number', 'amount', 'is_successful', 'created_at')
+    readonly_fields = ('payment_method', 'payment_type', 'checkout_request_id', 'receipt_number', 'amount', 'is_successful', 'created_at')
     can_delete = False
 
 @admin.register(Order)
 class OrderAdmin(admin.ModelAdmin):
     list_display = (
-        'order_id', 'customer_name', 'customer_phone', 'customer_email',
-        'total_amount', 'status', 'created_at'
+        'order_id', 'customer_name', 'customer_phone',
+        'total_amount', 'deposit_amount', 'balance_due', 'status', 'created_at'
     )
     list_filter = ('status', 'created_at')
     search_fields = ('order_id', 'customer_name', 'customer_phone', 'customer_email')
@@ -55,11 +55,11 @@ class OrderItemAdmin(admin.ModelAdmin):
 @admin.register(Transaction)
 class TransactionAdmin(admin.ModelAdmin):
     list_display = (
-        'id', 'order', 'payment_method', 'amount',
+        'id', 'order', 'payment_method', 'payment_type', 'amount',
         'receipt_number', 'checkout_request_id', 'is_successful', 'created_at'
     )
-    list_filter = ('payment_method', 'is_successful', 'created_at')
-    search_fields = ('order__order_id', 'receipt_number', 'checkout_request_id')
+    list_filter = ('payment_method', 'payment_type', 'is_successful', 'created_at')
+    search_fields = ('order__order_id', 'receipt_number', 'checkout_request_id', 'phone_number')
     readonly_fields = ('created_at',)
     ordering = ('-created_at',)
 
