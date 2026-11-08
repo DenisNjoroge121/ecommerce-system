@@ -35,7 +35,10 @@ export default function Login() {
     setError('');
 
     try {
-      const res = await API.post('auth/login/', formData);
+      const res = await API.post('auth/login/', {
+        username: formData.username.trim(),
+        password: formData.password,
+      });
       login(res.data.token, res.data.user);
 
       // If customer attempted to add a product before signing in, fulfill it now!

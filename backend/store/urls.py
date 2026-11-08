@@ -5,7 +5,7 @@ from .views import (
     initiate_stk_push, check_payment_status, confirm_payment, confirm_simulated_payment,
     record_balance_payment, mpesa_callback, process_card_payment,
     trade_summary_analytics,
-    register_user, login_user, current_user, change_password
+    register_user, login_user, current_user, change_password, list_customers
 )
 
 router = DefaultRouter()
@@ -19,6 +19,7 @@ urlpatterns = [
     path('auth/login/', login_user, name='auth-login'),
     path('auth/me/', current_user, name='auth-me'),
     path('auth/change-password/', change_password, name='auth-change-password'),
+    path('admin/customers/', list_customers, name='admin-customers'),
 
     # Payment endpoints
     path('payments/stk-push/', initiate_stk_push, name='payments-stk-push'),

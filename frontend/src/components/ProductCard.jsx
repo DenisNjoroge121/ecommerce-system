@@ -95,11 +95,18 @@ export default function ProductCard({ product }) {
       {/* Product Info */}
       <div className="p-5 flex-1 flex flex-col justify-between space-y-4">
         <div>
-          {product.category_name && (
-            <span className="text-[11px] font-semibold uppercase tracking-wider text-sky-600 mb-1 block">
-              {product.category_name}
-            </span>
-          )}
+          <div className="flex items-center justify-between gap-2 mb-1">
+            {product.category_name && (
+              <span className="text-[11px] font-semibold uppercase tracking-wider text-sky-600 truncate">
+                {product.category_name}
+              </span>
+            )}
+            {product.reference && (
+              <span className="text-[10px] font-mono font-medium text-slate-500 bg-slate-100 px-1.5 py-0.5 rounded border border-slate-200 shrink-0" title={`Bag Reference: ${product.reference}`}>
+                Ref: {product.reference}
+              </span>
+            )}
+          </div>
           <Link to={`/product/${product.id}`} className="block group-hover:text-sky-600 transition">
             <h3 className="font-semibold text-gray-900 line-clamp-1 text-base">
               {product.title}

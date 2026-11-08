@@ -67,7 +67,8 @@ export default function ProductDetail({ sellerPhone = "254700000000" }) {
   };
 
   const handleWhatsApp = () => {
-    const text = `Hi, I'm interested in purchasing "${product.title}" priced at KES ${product.price}. Link: ${window.location.href}`;
+    const refText = product.reference ? ` (Ref: ${product.reference})` : '';
+    const text = `Hi, I'm interested in purchasing "${product.title}"${refText} priced at KES ${product.price}. Link: ${window.location.href}`;
     window.open(`https://wa.me/${sellerPhone}?text=${encodeURIComponent(text)}`, '_blank', 'noopener,noreferrer');
   };
 
@@ -117,11 +118,18 @@ export default function ProductDetail({ sellerPhone = "254700000000" }) {
         {/* Product Information */}
         <div className="p-8 flex flex-col justify-between space-y-6">
           <div className="space-y-4">
-            {product.category_name && (
-              <span className="text-xs font-bold uppercase tracking-wider text-sky-600">
-                {product.category_name}
-              </span>
-            )}
+            <div className="flex items-center gap-2 flex-wrap">
+              {product.category_name && (
+                <span className="text-xs font-bold uppercase tracking-wider text-sky-600">
+                  {product.category_name}
+                </span>
+              )}
+              {product.reference && (
+                <span className="text-xs font-mono font-semibold text-slate-600 bg-slate-100 border border-slate-200 px-2 py-0.5 rounded-md">
+                  Bag Ref: {product.reference}
+                </span>
+              )}
+            </div>
             <h1 className="text-2xl sm:text-3xl font-extrabold text-gray-900 tracking-tight leading-tight">
               {product.title}
             </h1>

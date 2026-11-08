@@ -1,3 +1,4 @@
+import re
 from decimal import Decimal
 from django.contrib.auth.models import User
 from rest_framework import serializers
@@ -6,20 +7,41 @@ from .models import Category, ContactInquiry, Product, Order, OrderItem, Transac
 class UserSerializer(serializers.ModelSerializer):
     class Meta:
         model = User
-        fields = ['id', 'username', 'email', 'is_staff', 'is_superuser']
+        fields = ['id', 'username', 'email', 'is_staff', 'is_superuser', 'date_joined']
 
 class RegisterSerializer(serializers.ModelSerializer):
+    username = serializers.CharField(max_length=150)
+    email = serializers.EmailField(required=True)
     password = serializers.CharField(write_only=True, min_length=6)
 
     class Meta:
         model = User
         fields = ['id', 'username', 'email', 'password']
 
+    def validate_username(self, value):
+        clean_value = re.sub(r'\s+', '_', value.strip())
+        if not clean_value:
+            raise serializers.ValidationError("Username cannot be empty.")
+        if User.objects.filter(username__iexact=clean_value).exists():
+            raise serializers.ValidationError("A user with this username already exists.")
+        return clean_value
+
+    def validate_email(self, value):
+        clean_email = value.strip().lower()
+        if not clean_email:
+            raise serializers.ValidationError("Email address is required.")
+        if User.objects.filter(email__iexact=clean_email).exists():
+            raise serializers.ValidationError("An account with this email already exists. Please sign in.")
+        return clean_email
+
     def create(self, validated_data):
+        username = validated_data['username']
+        email = validated_data['email']
+        password = validated_data['password']
         user = User.objects.create_user(
-            username=validated_data['username'],
-            email=validated_data.get('email', ''),
-            password=validated_data['password']
+            username=username,
+            email=email,
+            password=password
         )
         return user
 
@@ -33,23 +55,56 @@ class CategorySerializer(serializers.ModelSerializer):
 
 class ProductSerializer(serializers.ModelSerializer):
     category_name = serializers.CharField(source='category.name', read_only=True)
+    image_url = serializers.CharField(write_only=True, required=False, allow_blank=True)
+    image = serializers.ImageField(required=False, allow_null=True)
 
     class Meta:
         model = Product
         fields = [
-            'id', 'category', 'category_name', 'title', 'slug',
-            'description', 'price', 'stock', 'image', 'is_active', 'created_at'
+            'id', 'category', 'category_name', 'title', 'reference', 'slug',
+            'description', 'price', 'stock', 'image', 'image_url', 'is_active', 'created_at'
         ]
-        extra_kwargs = {'slug': {'required': False}}
+        extra_kwargs = {
+            'slug': {'required': False},
+            'reference': {'required': False, 'allow_blank': True},
+        }
+
+    def to_representation(self, instance):
+        data = super().to_representation(instance)
+        image_val = instance.image
+        if image_val:
+            image_str = str(image_val)
+            if image_str.startswith('http://') or image_str.startswith('https://'):
+                data['image'] = image_str
+            else:
+                request = self.context.get('request')
+                if request:
+                    data['image'] = request.build_absolute_uri(image_val.url)
+                else:
+                    data['image'] = image_val.url
+        return data
+
+    def create(self, validated_data):
+        image_url = validated_data.pop('image_url', None)
+        if not validated_data.get('image') and image_url:
+            validated_data['image'] = image_url
+        return super().create(validated_data)
+
+    def update(self, instance, validated_data):
+        image_url = validated_data.pop('image_url', None)
+        if not validated_data.get('image') and image_url:
+            validated_data['image'] = image_url
+        return super().update(instance, validated_data)
 
 class OrderItemSerializer(serializers.ModelSerializer):
     product_title = serializers.CharField(source='product.title', read_only=True)
+    product_reference = serializers.CharField(source='product.reference', read_only=True)
     product_image = serializers.SerializerMethodField(read_only=True)
     subtotal = serializers.SerializerMethodField(read_only=True)
 
     class Meta:
         model = OrderItem
-        fields = ['id', 'product', 'product_title', 'product_image', 'quantity', 'price', 'subtotal']
+        fields = ['id', 'product', 'product_title', 'product_reference', 'product_image', 'quantity', 'price', 'subtotal']
 
     def get_product_image(self, obj):
         if obj.product and obj.product.image:

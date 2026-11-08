@@ -17,6 +17,7 @@ class Category(models.Model):
 class Product(models.Model):
     category = models.ForeignKey(Category, related_name='products', on_delete=models.CASCADE)
     title = models.CharField(max_length=255)
+    reference = models.CharField(max_length=100, blank=True, default='', db_index=True)
     slug = models.SlugField(unique=True, blank=True)
     description = models.TextField()
     price = models.DecimalField(max_digits=10, decimal_places=2)
@@ -26,6 +27,15 @@ class Product(models.Model):
     created_at = models.DateTimeField(auto_now_add=True)
 
     def save(self, *args, **kwargs):
+        if not self.reference:
+            base_ref = (slugify(self.title) or 'bag')[:20].upper()
+            candidate_ref = f"REF-{base_ref}"
+            counter = 1
+            while Product.objects.filter(reference=candidate_ref).exclude(pk=self.pk).exists():
+                candidate_ref = f"REF-{base_ref}-{counter}"
+                counter += 1
+            self.reference = candidate_ref
+
         if not self.slug:
             base_slug = slugify(self.title) or 'product'
             candidate_slug = base_slug
@@ -37,7 +47,7 @@ class Product(models.Model):
         super().save(*args, **kwargs)
 
     def __str__(self):
-        return self.title
+        return f"{self.title} ({self.reference})" if self.reference else self.title
 
 class Order(models.Model):
     STATUS_CHOICES = (

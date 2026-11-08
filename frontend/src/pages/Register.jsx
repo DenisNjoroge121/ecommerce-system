@@ -35,7 +35,13 @@ export default function Register() {
     setError('');
 
     try {
-      const res = await API.post('auth/register/', formData);
+      const cleanUsername = formData.username.trim();
+      const cleanEmail = formData.email.trim().toLowerCase();
+      const res = await API.post('auth/register/', {
+        username: cleanUsername,
+        email: cleanEmail,
+        password: formData.password,
+      });
       login(res.data.token, res.data.user);
 
       if (attemptedProduct) {

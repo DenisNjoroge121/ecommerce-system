@@ -13,6 +13,7 @@ from rest_framework import viewsets, status, generics
 from rest_framework.decorators import api_view, permission_classes
 from rest_framework.permissions import AllowAny, IsAuthenticated, IsAdminUser
 from rest_framework.response import Response
+from rest_framework.parsers import MultiPartParser, FormParser, JSONParser
 from rest_framework.authtoken.models import Token
 
 from .models import Category, ContactInquiry, Product, Order, OrderItem, Transaction
@@ -41,21 +42,40 @@ def register_user(request):
 @api_view(['POST'])
 @permission_classes([AllowAny])
 def login_user(request):
-    username = request.data.get('username')
-    password = request.data.get('password')
+    raw_username = request.data.get('username')
+    raw_password = request.data.get('password')
 
-    if not username or not password:
+    if not raw_username or not raw_password:
         return Response({'error': 'Please provide both username and password.'}, status=status.HTTP_400_BAD_REQUEST)
 
+    username = str(raw_username).strip()
+    password = str(raw_password)
+
+    # 1. Exact username authenticate
     user = authenticate(request, username=username, password=password)
-    if not user and '@' in username:
-        try:
-            matched_user = User.objects.get(email=username)
+
+    # 2. Case-insensitive username match
+    if not user:
+        matched_user = User.objects.filter(username__iexact=username).first()
+        if matched_user:
             user = authenticate(request, username=matched_user.username, password=password)
-        except (User.DoesNotExist, User.MultipleObjectsReturned):
-            user = None
+
+    # 3. Space-normalized username (e.g. "John Doe" -> "John_Doe")
+    if not user and ' ' in username:
+        norm_username = username.replace(' ', '_')
+        matched_user = User.objects.filter(username__iexact=norm_username).first()
+        if matched_user:
+            user = authenticate(request, username=matched_user.username, password=password)
+
+    # 4. Case-insensitive email match
+    if not user:
+        matched_user = User.objects.filter(email__iexact=username).first()
+        if matched_user:
+            user = authenticate(request, username=matched_user.username, password=password)
 
     if user:
+        if not user.is_active:
+            return Response({'error': 'This account has been deactivated.'}, status=status.HTTP_403_FORBIDDEN)
         token, _ = Token.objects.get_or_create(user=user)
         return Response({
             'token': token.key,
@@ -68,6 +88,29 @@ def login_user(request):
 @permission_classes([IsAuthenticated])
 def current_user(request):
     return Response(UserSerializer(request.user).data)
+
+@api_view(['GET'])
+@permission_classes([IsAuthenticated])
+def list_customers(request):
+    if not (request.user.is_staff or request.user.is_superuser):
+        return Response({'error': 'Permission denied. Admin access required.'}, status=status.HTTP_403_FORBIDDEN)
+
+    customers = User.objects.filter(is_staff=False, is_superuser=False).order_by('-date_joined')
+    result = []
+    for c in customers:
+        user_orders = Order.objects.filter(
+            Q(customer_email__iexact=c.email) | Q(customer_name__iexact=c.username)
+        )
+        total_spent = sum(o.total_amount for o in user_orders)
+        result.append({
+            'id': c.id,
+            'username': c.username,
+            'email': c.email,
+            'date_joined': c.date_joined,
+            'orders_count': user_orders.count(),
+            'total_spent': float(total_spent),
+        })
+    return Response(result)
 
 @api_view(['POST'])
 @permission_classes([IsAuthenticated])
@@ -109,6 +152,7 @@ class ProductViewSet(viewsets.ModelViewSet):
     queryset = Product.objects.all().order_by('-created_at')
     serializer_class = ProductSerializer
     permission_classes = [AllowAny]
+    parser_classes = [MultiPartParser, FormParser, JSONParser]
 
     def get_queryset(self):
         queryset = Product.objects.all().order_by('-created_at')
@@ -120,7 +164,7 @@ class ProductViewSet(viewsets.ModelViewSet):
         search = self.request.query_params.get('search')
         if search:
             queryset = queryset.filter(
-                Q(title__icontains=search) | Q(description__icontains=search)
+                Q(title__icontains=search) | Q(description__icontains=search) | Q(reference__icontains=search)
             )
 
         category_id = self.request.query_params.get('category')
@@ -132,7 +176,7 @@ class ProductViewSet(viewsets.ModelViewSet):
             queryset = queryset.filter(stock__gt=0)
 
         ordering = self.request.query_params.get('ordering')
-        if ordering in ['price', '-price', 'created_at', '-created_at', 'title']:
+        if ordering in ['price', '-price', 'created_at', '-created_at', 'title', 'reference']:
             queryset = queryset.order_by(ordering)
 
         return queryset

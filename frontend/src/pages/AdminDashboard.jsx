@@ -7,7 +7,7 @@ import {
   DollarSign, Send, X, RefreshCw, ArrowLeft, BarChart3,
   Lock, KeyRound, ShieldCheck, CheckCircle2, AlertCircle, Loader2, User,
   Calendar, ChevronDown, ChevronUp, Printer, Check, CreditCard,
-  Wallet, Layers
+  Wallet, Layers, Users, Upload, Image as ImageIcon
 } from 'lucide-react';
 
 export default function AdminDashboard() {
@@ -45,11 +45,18 @@ export default function AdminDashboard() {
   const [adminLoginLoading, setAdminLoginLoading] = useState(false);
   const [adminLoginError, setAdminLoginError] = useState('');
 
+  // Registered Customers state
+  const [customers, setCustomers] = useState([]);
+  const [customersLoading, setCustomersLoading] = useState(false);
+
   // Product CRUD Modal states
   const [isProductModalOpen, setIsProductModalOpen] = useState(false);
   const [editingProduct, setEditingProduct] = useState(null);
+  const [imageFile, setImageFile] = useState(null);
+  const [imagePreview, setImagePreview] = useState('');
   const [productForm, setProductForm] = useState({
     title: '',
+    reference: '',
     category: '',
     price: '',
     stock: '',
@@ -108,6 +115,18 @@ export default function AdminDashboard() {
     }
   };
 
+  const fetchCustomers = async () => {
+    setCustomersLoading(true);
+    try {
+      const res = await API.get('admin/customers/');
+      setCustomers(res.data);
+    } catch (err) {
+      console.error('Failed to load customers:', err);
+    } finally {
+      setCustomersLoading(false);
+    }
+  };
+
   // -----------------------------------------------------------
   // FETCH TRADE SUMMARY ANALYTICS
   // -----------------------------------------------------------
@@ -137,13 +156,15 @@ export default function AdminDashboard() {
         API.get('categories/'),
         API.get('orders/'),
         API.get('analytics/trade-summary/', { params: { period: 'week' } }),
+        API.get('admin/customers/').catch(() => ({ data: [] })),
       ])
-        .then(([prodRes, catRes, ordRes, analyticsRes]) => {
+        .then(([prodRes, catRes, ordRes, analyticsRes, custRes]) => {
           if (isMounted) {
             setProducts(prodRes.data);
             setCategories(catRes.data);
             setOrders(ordRes.data);
             setAnalyticsData(analyticsRes.data);
+            if (custRes?.data) setCustomers(custRes.data);
           }
         })
         .catch((err) => {
@@ -253,6 +274,7 @@ export default function AdminDashboard() {
     setEditingProduct(null);
     setProductForm({
       title: '',
+      reference: '',
       category: categories[0]?.id || '',
       price: '',
       stock: '10',
@@ -260,6 +282,8 @@ export default function AdminDashboard() {
       image: '',
       is_active: true,
     });
+    setImageFile(null);
+    setImagePreview('');
     setIsProductModalOpen(true);
   };
 
@@ -267,6 +291,7 @@ export default function AdminDashboard() {
     setEditingProduct(prod);
     setProductForm({
       title: prod.title || '',
+      reference: prod.reference || '',
       category: prod.category || categories[0]?.id || '',
       price: String(prod.price || ''),
       stock: String(prod.stock || '0'),
@@ -274,35 +299,66 @@ export default function AdminDashboard() {
       image: prod.image || '',
       is_active: Boolean(prod.is_active),
     });
+    setImageFile(null);
+    setImagePreview(prod.image || '');
     setIsProductModalOpen(true);
+  };
+
+  const handleImageFileChange = (e) => {
+    const file = e.target.files?.[0];
+    if (file) {
+      setImageFile(file);
+      const previewUrl = URL.createObjectURL(file);
+      setImagePreview(previewUrl);
+    }
+  };
+
+  const handleRemoveImage = () => {
+    setImageFile(null);
+    setImagePreview('');
+    setProductForm((prev) => ({ ...prev, image: '' }));
   };
 
   const handleSaveProduct = async (e) => {
     e.preventDefault();
     try {
-      const payload = {
-        title: productForm.title,
-        category: productForm.category || categories[0]?.id,
-        price: parseFloat(productForm.price),
-        stock: parseInt(productForm.stock, 10),
-        description: productForm.description,
-        image: productForm.image,
-        is_active: productForm.is_active,
-      };
+      const formData = new FormData();
+      formData.append('title', productForm.title);
+      formData.append('reference', productForm.reference || '');
+      formData.append('category', productForm.category || categories[0]?.id || '');
+      formData.append('price', productForm.price);
+      formData.append('stock', productForm.stock);
+      formData.append('description', productForm.description);
+      formData.append('is_active', productForm.is_active);
+
+      if (imageFile) {
+        formData.append('image', imageFile);
+      } else if (!editingProduct && productForm.image) {
+        formData.append('image_url', productForm.image);
+      }
 
       if (editingProduct) {
-        await API.patch(`products/${editingProduct.id}/`, payload);
-        showNotification(`Product "${payload.title}" updated successfully!`);
+        await API.patch(`products/${editingProduct.id}/`, formData, {
+          headers: { 'Content-Type': 'multipart/form-data' },
+        });
+        showNotification(`Bag "${productForm.title}" updated successfully!`);
       } else {
-        await API.post('products/', payload);
-        showNotification(`Product "${payload.title}" added to inventory!`);
+        await API.post('products/', formData, {
+          headers: { 'Content-Type': 'multipart/form-data' },
+        });
+        showNotification(`Bag "${productForm.title}" added to inventory!`);
       }
 
       setIsProductModalOpen(false);
+      setImageFile(null);
+      setImagePreview('');
       fetchAdminData();
     } catch (err) {
       console.error('Failed to save product:', err);
-      showNotification('Failed to save product. Please check form inputs.', 'error');
+      const errMsg = err.response?.data
+        ? (typeof err.response.data === 'string' ? err.response.data : JSON.stringify(err.response.data))
+        : 'Failed to save product. Please check form inputs.';
+      showNotification(errMsg, 'error');
     }
   };
 
@@ -681,6 +737,22 @@ export default function AdminDashboard() {
 
         <button
           type="button"
+          onClick={() => {
+            setActiveTab('customers');
+            fetchCustomers();
+          }}
+          className={`pb-3 transition border-b-2 flex items-center gap-1.5 whitespace-nowrap ${
+            activeTab === 'customers'
+              ? 'border-sky-600 text-sky-600'
+              : 'border-transparent text-gray-500 hover:text-gray-800'
+          }`}
+        >
+          <Users className="w-4 h-4" />
+          <span>Registered Customers ({customers.length})</span>
+        </button>
+
+        <button
+          type="button"
           onClick={() => setActiveTab('account')}
           className={`pb-3 transition border-b-2 flex items-center gap-1.5 whitespace-nowrap ${
             activeTab === 'account'
@@ -904,7 +976,14 @@ export default function AdminDashboard() {
                                         )}
                                       </div>
                                       <div className="min-w-0 flex-1">
-                                        <div className="font-semibold text-gray-900 truncate">{it.product_title}</div>
+                                        <div className="font-semibold text-gray-900 truncate flex items-center gap-2">
+                                          <span>{it.product_title}</span>
+                                          {it.product_reference && (
+                                            <span className="font-mono text-[10px] text-sky-800 bg-sky-50 border border-sky-200/60 px-1.5 py-0.2 rounded shrink-0">
+                                              Ref: {it.product_reference}
+                                            </span>
+                                          )}
+                                        </div>
                                         <div className="text-[11px] text-gray-500">
                                           Qty: {it.quantity} &times; KES {Number(it.price).toLocaleString()}
                                         </div>
@@ -1219,6 +1298,7 @@ export default function AdminDashboard() {
               <thead className="bg-gray-50/75 border-b border-gray-100 text-gray-500 uppercase font-semibold">
                 <tr>
                   <th className="py-3 px-4">Item</th>
+                  <th className="py-3 px-4">Bag Reference</th>
                   <th className="py-3 px-4">Category</th>
                   <th className="py-3 px-4">Price (KES)</th>
                   <th className="py-3 px-4">Stock</th>
@@ -1232,7 +1312,7 @@ export default function AdminDashboard() {
                     <td className="py-3.5 px-4 flex items-center gap-3">
                       <div className="w-10 h-10 rounded-lg bg-gray-100 overflow-hidden shrink-0 border border-gray-200">
                         <img
-                          src={p.image || 'https://via.placeholder.com/100'}
+                          src={p.image?.startsWith('http') ? p.image : (p.image ? `http://localhost:8000${p.image.startsWith('/') ? '' : '/'}${p.image}` : 'https://via.placeholder.com/100')}
                           alt={p.title}
                           className="w-full h-full object-cover"
                         />
@@ -1241,6 +1321,12 @@ export default function AdminDashboard() {
                         <div className="font-bold text-gray-900 line-clamp-1">{p.title}</div>
                         <div className="text-[11px] text-gray-400 line-clamp-1">{p.description}</div>
                       </div>
+                    </td>
+
+                    <td className="py-3.5 px-4 font-mono font-semibold text-xs text-sky-800">
+                      <span className="bg-sky-50 border border-sky-200/60 px-2 py-0.5 rounded-md">
+                        {p.reference || '—'}
+                      </span>
                     </td>
 
                     <td className="py-3.5 px-4 font-medium text-gray-600">
@@ -1393,6 +1479,92 @@ export default function AdminDashboard() {
                 Trigger an STK push using the form to view real-time Safaricom callback / checkout metadata.
               </div>
             )}
+          </div>
+        </div>
+      )}
+
+      {/* ------------------------------------------------------------- */}
+      {/* TAB: REGISTERED CUSTOMERS IN DATABASE */}
+      {/* ------------------------------------------------------------- */}
+      {activeTab === 'customers' && (
+        <div className="bg-white rounded-2xl border border-gray-100 shadow-xs overflow-hidden space-y-4">
+          <div className="p-4 bg-gray-50/75 border-b border-gray-100 flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3">
+            <div>
+              <h3 className="font-bold text-gray-900 text-sm flex items-center gap-2">
+                <Users className="w-4 h-4 text-sky-600" />
+                <span>Registered Customer Accounts</span>
+              </h3>
+              <p className="text-xs text-gray-500 mt-0.5">
+                All customer accounts and login credentials successfully verified and stored in the database.
+              </p>
+            </div>
+            <button
+              type="button"
+              onClick={fetchCustomers}
+              disabled={customersLoading}
+              className="px-3 py-1.5 bg-white border border-gray-200 text-gray-700 font-semibold rounded-xl text-xs hover:bg-gray-50 transition flex items-center gap-1.5 shadow-2xs"
+            >
+              <RefreshCw className={`w-3.5 h-3.5 ${customersLoading ? 'animate-spin' : ''}`} />
+              <span>Refresh Customers</span>
+            </button>
+          </div>
+
+          <div className="overflow-x-auto">
+            <table className="w-full text-left text-xs">
+              <thead className="bg-gray-50/75 border-b border-gray-100 text-gray-500 uppercase font-semibold">
+                <tr>
+                  <th className="py-3 px-4">Customer Username</th>
+                  <th className="py-3 px-4">Email Address</th>
+                  <th className="py-3 px-4">Date Joined</th>
+                  <th className="py-3 px-4">Orders Placed</th>
+                  <th className="py-3 px-4">Total Spent (KES)</th>
+                  <th className="py-3 px-4 text-right">Account Status</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-gray-100 text-gray-700">
+                {customers.length === 0 ? (
+                  <tr>
+                    <td colSpan={6} className="py-8 text-center text-gray-400">
+                      {customersLoading ? 'Loading customer accounts...' : 'No customer accounts registered yet.'}
+                    </td>
+                  </tr>
+                ) : (
+                  customers.map((c) => (
+                    <tr key={c.id} className="hover:bg-gray-50/50 transition">
+                      <td className="py-3.5 px-4 flex items-center gap-2.5 font-bold text-gray-900">
+                        <div className="w-7 h-7 rounded-full bg-sky-100 text-sky-700 flex items-center justify-center font-bold text-xs uppercase">
+                          {c.username.slice(0, 2)}
+                        </div>
+                        <span>{c.username}</span>
+                      </td>
+
+                      <td className="py-3.5 px-4 font-medium text-gray-600">
+                        {c.email || '—'}
+                      </td>
+
+                      <td className="py-3.5 px-4 text-gray-500">
+                        {c.date_joined ? new Date(c.date_joined).toLocaleDateString('en-KE', { year: 'numeric', month: 'short', day: 'numeric' }) : '—'}
+                      </td>
+
+                      <td className="py-3.5 px-4 font-semibold text-gray-900">
+                        {c.orders_count} orders
+                      </td>
+
+                      <td className="py-3.5 px-4 font-bold text-emerald-700">
+                        KES {Number(c.total_spent || 0).toLocaleString()}
+                      </td>
+
+                      <td className="py-3.5 px-4 text-right">
+                        <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[10px] font-bold uppercase bg-emerald-50 text-emerald-700 border border-emerald-200">
+                          <CheckCircle2 className="w-3 h-3 text-emerald-600" />
+                          <span>Stored &amp; Active</span>
+                        </span>
+                      </td>
+                    </tr>
+                  ))
+                )}
+              </tbody>
+            </table>
           </div>
         </div>
       )}
@@ -1666,8 +1838,15 @@ export default function AdminDashboard() {
               </div>
               <div className="divide-y divide-gray-100 p-2">
                 {printableOrder.items?.map((it, idx) => (
-                  <div key={idx} className="py-2 px-1 flex justify-between text-gray-700">
-                    <span>{it.quantity}x {it.product_title}</span>
+                  <div key={idx} className="py-2 px-1 flex justify-between items-center text-gray-700">
+                    <div>
+                      <span className="font-medium">{it.quantity}x {it.product_title}</span>
+                      {it.product_reference && (
+                        <span className="ml-2 font-mono text-[10px] text-gray-500 bg-gray-100 border border-gray-200 px-1.5 py-0.5 rounded">
+                          Ref: {it.product_reference}
+                        </span>
+                      )}
+                    </div>
                     <span className="font-bold">KES {(it.price * it.quantity).toLocaleString()}</span>
                   </div>
                 ))}
@@ -1730,15 +1909,31 @@ export default function AdminDashboard() {
 
             <form onSubmit={handleSaveProduct} className="space-y-4 text-xs">
               <div>
-                <label className="block font-semibold text-gray-700 uppercase mb-1">Title</label>
+                <label className="block font-semibold text-gray-700 uppercase mb-1">Bag Title / Name *</label>
                 <input
                   type="text"
                   required
                   value={productForm.title}
                   onChange={(e) => setProductForm({ ...productForm, title: e.target.value })}
-                  placeholder="e.g. Wireless Bluetooth Speaker"
+                  placeholder="e.g. Classic Handcrafted Tote Bag"
                   className="w-full px-3 py-2 rounded-xl border border-gray-200 focus:ring-2 focus:ring-sky-500 focus:outline-hidden"
                 />
+              </div>
+
+              <div>
+                <label className="block font-semibold text-gray-700 uppercase mb-1">
+                  Bag Reference / Code
+                </label>
+                <input
+                  type="text"
+                  value={productForm.reference}
+                  onChange={(e) => setProductForm({ ...productForm, reference: e.target.value })}
+                  placeholder="e.g. BC-TOTE-RED-01 or REF-BAG-101"
+                  className="w-full px-3 py-2 rounded-xl border border-gray-200 focus:ring-2 focus:ring-sky-500 focus:outline-hidden font-mono text-xs"
+                />
+                <p className="text-[11px] text-gray-400 mt-0.5">
+                  Your custom reference code for this bag. (Leave blank to auto-generate).
+                </p>
               </div>
 
               <div className="grid grid-cols-2 gap-3">
@@ -1799,15 +1994,63 @@ export default function AdminDashboard() {
 
               <div>
                 <label className="block font-semibold text-gray-700 uppercase mb-1">
-                  Image URL / Link
+                  Bag Image (Upload from Device)
                 </label>
-                <input
-                  type="url"
-                  value={productForm.image}
-                  onChange={(e) => setProductForm({ ...productForm, image: e.target.value })}
-                  placeholder="https://images.unsplash.com/..."
-                  className="w-full px-3 py-2 rounded-xl border border-gray-200 focus:ring-2 focus:ring-sky-500 focus:outline-hidden"
-                />
+
+                {/* Preview existing or newly selected image */}
+                {(imagePreview || productForm.image) ? (
+                  <div className="relative w-full h-44 rounded-xl overflow-hidden border border-gray-200 bg-gray-50 flex items-center justify-center mb-2 shadow-xs group">
+                    <img
+                      src={imagePreview || (productForm.image?.startsWith('http') ? productForm.image : `http://localhost:8000${productForm.image.startsWith('/') ? '' : '/'}${productForm.image}`)}
+                      alt="Bag Preview"
+                      className="w-full h-full object-contain bg-slate-900/5 p-1"
+                    />
+                    <button
+                      type="button"
+                      onClick={handleRemoveImage}
+                      className="absolute top-2 right-2 bg-rose-600 hover:bg-rose-700 text-white rounded-full p-1.5 shadow transition"
+                      title="Remove image"
+                    >
+                      <X className="w-3.5 h-3.5" />
+                    </button>
+                    {imageFile && (
+                      <div className="absolute bottom-2 left-2 bg-slate-900/80 backdrop-blur-xs text-white text-[10px] px-2 py-0.5 rounded font-mono">
+                        New: {imageFile.name} ({(imageFile.size / 1024).toFixed(1)} KB)
+                      </div>
+                    )}
+                  </div>
+                ) : (
+                  <div className="border-2 border-dashed border-gray-200 rounded-xl p-5 text-center mb-2 hover:border-sky-300 transition bg-gray-50/50">
+                    <ImageIcon className="w-8 h-8 text-gray-400 mx-auto mb-1" />
+                    <p className="text-xs text-gray-500 font-medium">No image selected</p>
+                    <p className="text-[11px] text-gray-400">Choose a photo from your computer or phone</p>
+                  </div>
+                )}
+
+                <div className="flex items-center gap-2">
+                  <label className="cursor-pointer inline-flex items-center gap-2 px-4 py-2.5 bg-sky-50 hover:bg-sky-100 text-sky-700 font-semibold rounded-xl text-xs transition border border-sky-200/80 shadow-2xs">
+                    <Upload className="w-4 h-4 text-sky-600" />
+                    <span>{imagePreview || productForm.image ? 'Choose Different Image' : 'Upload Image from Device'}</span>
+                    <input
+                      type="file"
+                      accept="image/*"
+                      onChange={handleImageFileChange}
+                      className="hidden"
+                    />
+                  </label>
+                  {(imagePreview || productForm.image) && (
+                    <button
+                      type="button"
+                      onClick={handleRemoveImage}
+                      className="text-xs text-rose-600 hover:text-rose-700 underline font-medium"
+                    >
+                      Clear
+                    </button>
+                  )}
+                </div>
+                <p className="text-[11px] text-gray-400 mt-1">
+                  Upload JPG, PNG, WEBP or GIF directly from your device.
+                </p>
               </div>
 
               <div>
