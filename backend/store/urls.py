@@ -3,7 +3,7 @@ from rest_framework.routers import DefaultRouter
 from .views import (
     CategoryViewSet, ContactInquiryCreateView, ProductViewSet, OrderViewSet,
     initiate_stk_push, check_payment_status, confirm_payment, confirm_simulated_payment,
-    record_balance_payment, mpesa_callback, process_card_payment,
+    record_balance_payment, record_cash_sale, mpesa_callback, process_card_payment,
     trade_summary_analytics,
     register_user, login_user, current_user, change_password, list_customers
 )
@@ -27,6 +27,7 @@ urlpatterns = [
     path('payments/confirm/', confirm_payment, name='payments-confirm'),
     path('payments/confirm-simulated/', confirm_simulated_payment, name='payments-confirm-simulated'),
     path('payments/record-balance/', record_balance_payment, name='payments-record-balance'),
+    path('payments/record-cash-sale/', record_cash_sale, name='payments-record-cash-sale'),
     path('payments/card/', process_card_payment, name='payments-card'),
     path('payments/mpesa/callback/', mpesa_callback, name='payments-mpesa-callback'),
 

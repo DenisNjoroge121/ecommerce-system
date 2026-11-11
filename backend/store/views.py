@@ -1001,3 +1001,106 @@ class ContactInquiryCreateView(generics.CreateAPIView):
     queryset = ContactInquiry.objects.all()
     serializer_class = ContactInquirySerializer
     permission_classes = [AllowAny]
+
+
+# -------------------------------------------------------------
+# RECORD CASH SALE (IN-STORE / WALK-IN POS)
+# -------------------------------------------------------------
+
+@api_view(['POST'])
+@permission_classes([AllowAny])
+def record_cash_sale(request):
+    """
+    Admin endpoint to record a direct in-store cash sale.
+    Accepts:
+    - customer_name: str (default: 'Walk-in Customer')
+    - customer_phone: str (default: '0700000000')
+    - customer_email: str (default: 'cash@belocreations.com')
+    - items: list of {product_id, quantity, price}
+    - amount_paid: float / Decimal (total cash received)
+    - receipt_number: str (optional)
+    - notes: str (optional)
+    """
+    data = request.data
+    customer_name = str(data.get('customer_name') or 'Walk-in Customer').strip()
+    customer_phone = str(data.get('customer_phone') or '0700000000').strip()
+    customer_email = str(data.get('customer_email') or 'cash@belocreations.com').strip()
+    items_data = data.get('items', [])
+    notes = str(data.get('notes') or '').strip()
+
+    if not items_data or not isinstance(items_data, list):
+        return Response({'error': 'Please provide at least one product in the items list.'}, status=status.HTTP_400_BAD_REQUEST)
+
+    total_amount = Decimal('0.00')
+    resolved_items = []
+    for it in items_data:
+        p_id = it.get('product_id') or it.get('id')
+        qty = int(it.get('quantity', 1))
+        if qty <= 0:
+            continue
+        try:
+            product = Product.objects.get(id=p_id)
+        except Product.DoesNotExist:
+            return Response({'error': f"Product with ID {p_id} not found."}, status=status.HTTP_404_NOT_FOUND)
+
+        unit_price = Decimal(str(it.get('price') or product.price))
+        line_total = unit_price * qty
+        total_amount += line_total
+        resolved_items.append({
+            'product': product,
+            'quantity': qty,
+            'price': unit_price
+        })
+
+    if not resolved_items:
+        return Response({'error': 'No valid product items provided.'}, status=status.HTTP_400_BAD_REQUEST)
+
+    raw_paid = data.get('amount_paid')
+    amount_paid = Decimal(str(raw_paid)) if raw_paid is not None else total_amount
+    balance_due = max(Decimal('0.00'), total_amount - amount_paid)
+    order_status = 'paid' if balance_due <= Decimal('0.00') else 'partially_paid'
+
+    receipt_number = data.get('receipt_number') or f"CSH-{uuid.uuid4().hex[:7].upper()}"
+
+    # Create Order
+    order = Order.objects.create(
+        customer_name=customer_name,
+        customer_phone=customer_phone,
+        customer_email=customer_email,
+        total_amount=total_amount,
+        deposit_amount=amount_paid,
+        balance_due=balance_due,
+        status=order_status
+    )
+
+    # Create OrderItems and decrement stock
+    for item in resolved_items:
+        OrderItem.objects.create(
+            order=order,
+            product=item['product'],
+            quantity=item['quantity'],
+            price=item['price']
+        )
+        prod = item['product']
+        if prod.stock is not None:
+            prod.stock = max(0, prod.stock - item['quantity'])
+            prod.save(update_fields=['stock'])
+
+    # Create Transaction for the cash payment
+    transaction = Transaction.objects.create(
+        order=order,
+        payment_method='cash',
+        payment_type='full' if balance_due <= Decimal('0.00') else 'deposit',
+        receipt_number=receipt_number,
+        amount=amount_paid,
+        is_successful=True,
+        phone_number=customer_phone,
+        result_desc=f"In-store cash sale. {notes}".strip()
+    )
+
+    return Response({
+        'status': 'success',
+        'message': f"Cash sale of KES {amount_paid:,.2f} recorded successfully (Receipt #{receipt_number}).",
+        'order': OrderSerializer(order).data,
+        'transaction': TransactionSerializer(transaction).data
+    }, status=status.HTTP_201_CREATED)

@@ -5,24 +5,17 @@ import { Search, SlidersHorizontal, Sparkles, Filter, X } from 'lucide-react';
 
 export default function Home() {
   const [products, setProducts] = useState([]);
-  const [categories, setCategories] = useState([]);
   const [loading, setLoading] = useState(true);
 
   // Filters state
   const [searchQuery, setSearchQuery] = useState('');
-  const [selectedCategory, setSelectedCategory] = useState('all');
   const [sortBy, setSortBy] = useState('featured');
   const [onlyInStock, setOnlyInStock] = useState(false);
 
   useEffect(() => {
-    // Fetch products and categories concurrently
-    Promise.all([
-      API.get('products/'),
-      API.get('categories/'),
-    ])
-      .then(([productsRes, categoriesRes]) => {
+    API.get('products/')
+      .then((productsRes) => {
         setProducts(productsRes.data);
-        setCategories(categoriesRes.data);
         setLoading(false);
       })
       .catch((err) => {
@@ -38,16 +31,12 @@ export default function Home() {
         const matchesSearch =
           searchQuery.trim() === '' ||
           p.title?.toLowerCase().includes(searchQuery.toLowerCase()) ||
-          p.description?.toLowerCase().includes(searchQuery.toLowerCase());
-
-        const matchesCategory =
-          selectedCategory === 'all' ||
-          String(p.category) === String(selectedCategory) ||
-          p.category_name?.toLowerCase() === selectedCategory.toLowerCase();
+          p.description?.toLowerCase().includes(searchQuery.toLowerCase()) ||
+          p.reference?.toLowerCase().includes(searchQuery.toLowerCase());
 
         const matchesStock = !onlyInStock || (p.stock && p.stock > 0);
 
-        return matchesSearch && matchesCategory && matchesStock;
+        return matchesSearch && matchesStock;
       })
       .sort((a, b) => {
         if (sortBy === 'price-asc') return Number(a.price) - Number(b.price);
@@ -55,7 +44,7 @@ export default function Home() {
         if (sortBy === 'newest') return new Date(b.created_at) - new Date(a.created_at);
         return 0; // featured default
       });
-  }, [products, searchQuery, selectedCategory, sortBy, onlyInStock]);
+  }, [products, searchQuery, sortBy, onlyInStock]);
 
   return (
     <div className="space-y-8 pb-12">
@@ -126,35 +115,6 @@ export default function Home() {
             </div>
           </div>
         </div>
-
-        {/* Category Pills */}
-        <div className="flex items-center gap-2 overflow-x-auto pb-1 pt-1 scrollbar-none">
-          <button
-            type="button"
-            onClick={() => setSelectedCategory('all')}
-            className={`px-3.5 py-1.5 rounded-full text-xs font-semibold whitespace-nowrap transition ${
-              selectedCategory === 'all'
-                ? 'bg-slate-900 text-white'
-                : 'bg-gray-100 hover:bg-gray-200 text-gray-700'
-            }`}
-          >
-            All Products
-          </button>
-          {categories.map((cat) => (
-            <button
-              key={cat.id}
-              type="button"
-              onClick={() => setSelectedCategory(String(cat.id))}
-              className={`px-3.5 py-1.5 rounded-full text-xs font-semibold whitespace-nowrap transition ${
-                selectedCategory === String(cat.id)
-                  ? 'bg-slate-900 text-white'
-                  : 'bg-gray-100 hover:bg-gray-200 text-gray-700'
-              }`}
-            >
-              {cat.name}
-            </button>
-          ))}
-        </div>
       </div>
 
       {/* Catalog Header */}
@@ -175,13 +135,12 @@ export default function Home() {
           <Filter className="w-8 h-8 text-gray-400 mx-auto" />
           <h3 className="font-bold text-gray-800 text-base">No Products Found</h3>
           <p className="text-xs text-gray-500 max-w-sm mx-auto">
-            Try adjusting your search keyword or clearing the selected category filters.
+            Try adjusting your search keyword or clearing filters.
           </p>
           <button
             type="button"
             onClick={() => {
               setSearchQuery('');
-              setSelectedCategory('all');
               setOnlyInStock(false);
             }}
             className="px-4 py-2 bg-slate-900 text-white text-xs font-semibold rounded-xl hover:bg-slate-800 transition"

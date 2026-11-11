@@ -1,19 +1,22 @@
 import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import API from '../api';
+import beloLogo from '../assets/Belo.png';
 import { useAuthStore } from '../store/useAuthStore';
 import {
-  Package, ShoppingCart, Smartphone, Plus, Edit2, Trash2,
-  DollarSign, Send, X, RefreshCw, ArrowLeft, BarChart3,
+  Package, ShoppingCart, ShoppingBag, Smartphone, Plus, Edit2, Trash2,
+  DollarSign, Send, X, RefreshCw, BarChart3,
   Lock, KeyRound, ShieldCheck, CheckCircle2, AlertCircle, Loader2, User,
   Calendar, ChevronDown, ChevronUp, Printer, Check, CreditCard,
-  Wallet, Layers, Users, Upload, Image as ImageIcon
+  Wallet, Layers, Users, Upload, Image as ImageIcon,
+  LayoutDashboard, ExternalLink, LogOut, TrendingUp, ChevronRight, Menu
 } from 'lucide-react';
 
 export default function AdminDashboard() {
-  const { user, isAdmin, isAuthenticated, login } = useAuthStore();
+  const { user, isAdmin, isAuthenticated, login, logout } = useAuthStore();
 
-  const [activeTab, setActiveTab] = useState('orders'); // 'orders' | 'analytics' | 'products' | 'stk' | 'account'
+  const [activeTab, setActiveTab] = useState('dashboard'); // 'dashboard' | 'orders' | 'analytics' | 'products' | 'customers' | 'stk' | 'account'
+  const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
   const [products, setProducts] = useState([]);
   const [categories, setCategories] = useState([]);
   const [orders, setOrders] = useState([]);
@@ -82,6 +85,21 @@ export default function AdminDashboard() {
   });
   const [passwordLoading, setPasswordLoading] = useState(false);
   const [passwordStatus, setPasswordStatus] = useState(null);
+
+  // Cash Sale (POS / Walk-in) state
+  const [cashSaleForm, setCashSaleForm] = useState({
+    customer_name: 'Walk-in Customer',
+    customer_phone: '0700000000',
+    customer_email: 'cash@belocreations.com',
+    selected_product_id: '',
+    quantity: 1,
+    amount_paid: '',
+    receipt_number: '',
+    notes: '',
+  });
+  const [cashSaleItems, setCashSaleItems] = useState([]);
+  const [cashSaleSubmitting, setCashSaleSubmitting] = useState(false);
+  const [cashReceiptOrder, setCashReceiptOrder] = useState(null);
 
   // Printable Bag Invoice Modal state
   const [printableOrder, setPrintableOrder] = useState(null);
@@ -422,11 +440,12 @@ export default function AdminDashboard() {
 
   // Record Balance Payment (Cash or M-Pesa Till)
   const handleOpenRecordBalance = (order) => {
+    const orderCode = String(order.order_id || '000000').slice(0, 6).toUpperCase();
     setBalanceModalOrder(order);
     setBalanceForm({
       amount: String(order.balance_due),
       payment_method: 'mpesa',
-      receipt_number: `MAN-REC-${Date.now().toString().slice(-6)}`,
+      receipt_number: `MAN-REC-${orderCode}`,
     });
   };
 
@@ -452,6 +471,124 @@ export default function AdminDashboard() {
       showNotification('Failed to record balance payment.', 'error');
     } finally {
       setBalanceSubmitting(false);
+    }
+  };
+
+  // -----------------------------------------------------------
+  // CASH SALE (POS / IN-STORE) HANDLERS
+  // -----------------------------------------------------------
+  const handleAddProductToCashSale = () => {
+    if (!cashSaleForm.selected_product_id) return;
+    const prod = products.find((p) => String(p.id) === String(cashSaleForm.selected_product_id));
+    if (!prod) return;
+
+    const existingIndex = cashSaleItems.findIndex((it) => String(it.id) === String(prod.id));
+    const qtyToAdd = Math.max(1, parseInt(cashSaleForm.quantity || 1, 10));
+
+    let updatedItems;
+    if (existingIndex > -1) {
+      updatedItems = [...cashSaleItems];
+      updatedItems[existingIndex].quantity += qtyToAdd;
+    } else {
+      updatedItems = [
+        ...cashSaleItems,
+        {
+          id: prod.id,
+          title: prod.title,
+          reference: prod.reference,
+          price: Number(prod.price),
+          image: prod.image,
+          quantity: qtyToAdd,
+        },
+      ];
+    }
+    setCashSaleItems(updatedItems);
+
+    const newTotal = updatedItems.reduce((acc, it) => acc + it.price * it.quantity, 0);
+    setCashSaleForm((prev) => ({
+      ...prev,
+      quantity: 1,
+      amount_paid: String(newTotal),
+      selected_product_id: '',
+    }));
+  };
+
+  const handleRemoveCashSaleItem = (prodId) => {
+    const updated = cashSaleItems.filter((it) => String(it.id) !== String(prodId));
+    setCashSaleItems(updated);
+    const newTotal = updated.reduce((acc, it) => acc + it.price * it.quantity, 0);
+    setCashSaleForm((prev) => ({
+      ...prev,
+      amount_paid: newTotal > 0 ? String(newTotal) : '',
+    }));
+  };
+
+  const handleUpdateCashItemQty = (prodId, delta) => {
+    const updated = cashSaleItems
+      .map((it) => {
+        if (String(it.id) === String(prodId)) {
+          const newQ = it.quantity + delta;
+          return newQ > 0 ? { ...it, quantity: newQ } : null;
+        }
+        return it;
+      })
+      .filter(Boolean);
+    setCashSaleItems(updated);
+    const newTotal = updated.reduce((acc, it) => acc + it.price * it.quantity, 0);
+    setCashSaleForm((prev) => ({
+      ...prev,
+      amount_paid: newTotal > 0 ? String(newTotal) : '',
+    }));
+  };
+
+  const cashSaleTotal = cashSaleItems.reduce((acc, it) => acc + it.price * it.quantity, 0);
+  const cashSalePaid = parseFloat(cashSaleForm.amount_paid) || 0;
+  const cashSaleChangeOrDue = cashSalePaid - cashSaleTotal;
+
+  const handleSubmitCashSale = async (e) => {
+    e.preventDefault();
+    if (cashSaleItems.length === 0) {
+      showNotification('Please add at least one handbag to the cash sale.', 'error');
+      return;
+    }
+    setCashSaleSubmitting(true);
+    try {
+      const payload = {
+        customer_name: cashSaleForm.customer_name || 'Walk-in Customer',
+        customer_phone: cashSaleForm.customer_phone || '0700000000',
+        customer_email: cashSaleForm.customer_email || 'cash@belocreations.com',
+        items: cashSaleItems.map((it) => ({
+          product_id: it.id,
+          quantity: it.quantity,
+          price: it.price,
+        })),
+        amount_paid: cashSalePaid > 0 ? cashSalePaid : cashSaleTotal,
+        receipt_number: cashSaleForm.receipt_number || undefined,
+        notes: cashSaleForm.notes,
+      };
+
+      const res = await API.post('payments/record-cash-sale/', payload);
+      showNotification(res.data.message || 'Cash sale recorded successfully!');
+      setCashReceiptOrder(res.data.order);
+      setCashSaleItems([]);
+      setCashSaleForm({
+        customer_name: 'Walk-in Customer',
+        customer_phone: '0700000000',
+        customer_email: 'cash@belocreations.com',
+        selected_product_id: '',
+        quantity: 1,
+        amount_paid: '',
+        receipt_number: '',
+        notes: '',
+      });
+      fetchAdminData();
+      fetchAnalytics();
+    } catch (err) {
+      console.error('Failed to record cash sale:', err);
+      const errMsg = err.response?.data?.error || 'Failed to record cash sale.';
+      showNotification(errMsg, 'error');
+    } finally {
+      setCashSaleSubmitting(false);
     }
   };
 
@@ -573,60 +710,14 @@ export default function AdminDashboard() {
   const totalDepositsAll = orders.reduce((sum, o) => sum + Number(o.deposit_amount || 0), 0);
   const totalBalancesAll = orders.reduce((sum, o) => sum + Number(o.balance_due || 0), 0);
   const pendingOrdersCount = orders.filter((o) => o.status === 'pending').length;
+  const depositRate = totalTradeAll > 0 ? Math.round((totalDepositsAll / totalTradeAll) * 100) : 0;
 
   return (
-    <div className="max-w-7xl mx-auto py-6 space-y-6">
-      {/* Header bar */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-        <div>
-          <div className="flex items-center gap-2">
-            <Link to="/" className="text-xs text-gray-400 hover:text-gray-600 flex items-center gap-1">
-              <ArrowLeft className="w-3 h-3" /> Storefront
-            </Link>
-            <span className="text-gray-300">/</span>
-            <span className="text-xs font-semibold text-sky-600">Admin Control Center</span>
-          </div>
-          <div className="flex items-center gap-3 mt-1">
-            <h1 className="text-2xl font-black text-gray-900">Store Administration</h1>
-            <span className="px-2.5 py-0.5 rounded-full text-[11px] font-bold bg-sky-50 text-sky-700 border border-sky-100">
-              Logged in as {user?.username}
-            </span>
-            <span className="hidden md:inline-flex items-center gap-1 text-[11px] text-emerald-600 bg-emerald-50 px-2 py-0.5 rounded-full border border-emerald-100">
-              <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-ping" />
-              Live Sync Active
-            </span>
-          </div>
-        </div>
-
-        <div className="flex items-center gap-2">
-          <button
-            type="button"
-            onClick={() => {
-              fetchAdminData();
-              fetchAnalytics();
-              showNotification('Store data synchronized with Safaricom and database.');
-            }}
-            className="p-2.5 bg-white border border-gray-200 hover:bg-gray-50 rounded-xl text-gray-700 transition text-xs flex items-center gap-1.5"
-            title="Sync latest customer payments and transactions"
-          >
-            <RefreshCw className={`w-3.5 h-3.5 ${loading ? 'animate-spin' : ''}`} />
-            <span>Sync Live</span>
-          </button>
-          <button
-            type="button"
-            onClick={handleOpenAddProduct}
-            className="px-4 py-2.5 bg-slate-900 hover:bg-slate-800 text-white font-semibold rounded-xl text-xs transition flex items-center gap-1.5 shadow-xs"
-          >
-            <Plus className="w-4 h-4" />
-            <span>Add Product</span>
-          </button>
-        </div>
-      </div>
-
+    <div className="max-w-7xl mx-auto py-4 space-y-5">
       {/* Banner alert */}
       {bannerMsg && (
         <div
-          className={`p-3.5 rounded-xl text-xs font-medium flex items-center justify-between ${
+          className={`p-3.5 rounded-2xl text-xs font-medium flex items-center justify-between shadow-xs ${
             bannerMsg.type === 'error'
               ? 'bg-rose-50 text-rose-700 border border-rose-200'
               : 'bg-emerald-50 text-emerald-700 border border-emerald-200'
@@ -639,142 +730,822 @@ export default function AdminDashboard() {
         </div>
       )}
 
-      {/* Overview Metric Cards (Bags, Deposits, Balances) */}
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
-        <div className="bg-white p-5 rounded-2xl border border-gray-100 shadow-xs space-y-1">
-          <div className="flex items-center justify-between text-gray-400">
-            <span className="text-xs font-medium">Total Bag Trade</span>
-            <ShoppingCart className="w-4 h-4 text-purple-500" />
+      {/* Main Admin Layout: Sidebar + Content */}
+      <div className="flex flex-col lg:flex-row gap-6 items-start">
+        {/* ========================================================= */}
+        {/* SIDEBAR NAVIGATION */}
+        {/* ========================================================= */}
+        <aside className="w-full lg:w-64 shrink-0 bg-white rounded-2xl border border-gray-100 shadow-xs p-4 lg:sticky lg:top-20 space-y-5">
+          {/* Brand & Mobile Toggle */}
+          <div className="border-b border-gray-100 pb-3 flex items-center justify-between">
+            <div className="flex items-center gap-2.5">
+              <img src={beloLogo} alt="Belo.Creations Logo" className="w-8 h-8 object-contain rounded-lg shadow-xs" />
+              <div>
+                <div className="font-extrabold text-sm text-gray-900 tracking-tight">Belo.Creations</div>
+                <div className="text-[10px] text-gray-400 uppercase font-bold tracking-wider">Store Admin</div>
+              </div>
+            </div>
+
+            <div className="flex items-center gap-2">
+              <span className="inline-flex items-center gap-1 text-[10px] font-bold text-emerald-600 bg-emerald-50 px-2 py-0.5 rounded-full border border-emerald-100">
+                <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-ping" />
+                Live
+              </span>
+              <button
+                type="button"
+                onClick={() => setIsMobileMenuOpen(!isMobileMenuOpen)}
+                className="lg:hidden p-1.5 text-gray-500 hover:bg-gray-100 rounded-lg transition"
+                aria-label="Toggle Navigation"
+              >
+                {isMobileMenuOpen ? <X className="w-4 h-4" /> : <Menu className="w-4 h-4" />}
+              </button>
+            </div>
           </div>
-          <div className="text-2xl font-black text-gray-900">KES {totalTradeAll.toLocaleString()}</div>
-          <div className="text-[11px] text-gray-400">{orders.length} customer bags placed</div>
-        </div>
 
-        <div className="bg-white p-5 rounded-2xl border border-gray-100 shadow-xs space-y-1">
-          <div className="flex items-center justify-between text-gray-400">
-            <span className="text-xs font-medium">Deposits Collected</span>
-            <DollarSign className="w-4 h-4 text-emerald-500" />
+          {/* Navigation Items (Responsive on mobile) */}
+          <nav className={`space-y-1.5 ${isMobileMenuOpen ? 'block' : 'hidden lg:block'}`}>
+            <div className="px-3 pt-1 pb-1 text-[10px] font-bold tracking-wider text-gray-400 uppercase">
+              Admin Navigation
+            </div>
+
+            {/* 1. Store Administration (Acts as the Dashboard of the Admin Panel) */}
+            <button
+              type="button"
+              onClick={() => {
+                setActiveTab('dashboard');
+                setIsMobileMenuOpen(false);
+              }}
+              className={`w-full flex items-center justify-between px-3 py-2.5 rounded-xl text-xs font-semibold transition ${
+                activeTab === 'dashboard'
+                  ? 'bg-slate-900 text-white shadow-xs'
+                  : 'text-gray-600 hover:bg-gray-50 hover:text-gray-900'
+              }`}
+            >
+              <div className="flex items-center gap-2.5">
+                <LayoutDashboard className={`w-4 h-4 ${activeTab === 'dashboard' ? 'text-sky-400' : 'text-gray-400'}`} />
+                <span>Store Administration</span>
+              </div>
+              <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${
+                activeTab === 'dashboard' ? 'bg-slate-800 text-sky-300' : 'bg-gray-100 text-gray-500'
+              }`}>
+                Dashboard
+              </span>
+            </button>
+
+            {/* 2. Order Bag & Balances */}
+            <button
+              type="button"
+              onClick={() => {
+                setActiveTab('orders');
+                setIsMobileMenuOpen(false);
+              }}
+              className={`w-full flex items-center justify-between px-3 py-2.5 rounded-xl text-xs font-semibold transition ${
+                activeTab === 'orders'
+                  ? 'bg-slate-900 text-white shadow-xs'
+                  : 'text-gray-600 hover:bg-gray-50 hover:text-gray-900'
+              }`}
+            >
+              <div className="flex items-center gap-2.5">
+                <ShoppingBag className={`w-4 h-4 ${activeTab === 'orders' ? 'text-sky-400' : 'text-gray-400'}`} />
+                <span>Order Bag &amp; Balances</span>
+              </div>
+              <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${
+                activeTab === 'orders' ? 'bg-slate-800 text-sky-300' : 'bg-gray-100 text-gray-600'
+              }`}>
+                {orders.length}
+              </span>
+            </button>
+
+            {/* 3. Trade Summaries & Calculations */}
+            <button
+              type="button"
+              onClick={() => {
+                setActiveTab('analytics');
+                fetchAnalytics(analyticsPeriod, customRange);
+                setIsMobileMenuOpen(false);
+              }}
+              className={`w-full flex items-center justify-between px-3 py-2.5 rounded-xl text-xs font-semibold transition ${
+                activeTab === 'analytics'
+                  ? 'bg-slate-900 text-white shadow-xs'
+                  : 'text-gray-600 hover:bg-gray-50 hover:text-gray-900'
+              }`}
+            >
+              <div className="flex items-center gap-2.5">
+                <BarChart3 className={`w-4 h-4 ${activeTab === 'analytics' ? 'text-sky-400' : 'text-gray-400'}`} />
+                <span>Trade Summaries &amp; Calculations</span>
+              </div>
+            </button>
+
+            {/* 4. Product Inventory */}
+            <button
+              type="button"
+              onClick={() => {
+                setActiveTab('products');
+                setIsMobileMenuOpen(false);
+              }}
+              className={`w-full flex items-center justify-between px-3 py-2.5 rounded-xl text-xs font-semibold transition ${
+                activeTab === 'products'
+                  ? 'bg-slate-900 text-white shadow-xs'
+                  : 'text-gray-600 hover:bg-gray-50 hover:text-gray-900'
+              }`}
+            >
+              <div className="flex items-center gap-2.5">
+                <Package className={`w-4 h-4 ${activeTab === 'products' ? 'text-sky-400' : 'text-gray-400'}`} />
+                <span>Product Inventory</span>
+              </div>
+              <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${
+                activeTab === 'products' ? 'bg-slate-800 text-sky-300' : 'bg-gray-100 text-gray-600'
+              }`}>
+                {products.length}
+              </span>
+            </button>
+
+            {/* 5. Record Cash Sale */}
+            <button
+              type="button"
+              onClick={() => {
+                setActiveTab('cash-sales');
+                setIsMobileMenuOpen(false);
+              }}
+              className={`w-full flex items-center justify-between px-3 py-2.5 rounded-xl text-xs font-semibold transition ${
+                activeTab === 'cash-sales'
+                  ? 'bg-slate-900 text-white shadow-xs'
+                  : 'text-gray-600 hover:bg-gray-50 hover:text-gray-900'
+              }`}
+            >
+              <div className="flex items-center gap-2.5">
+                <DollarSign className={`w-4 h-4 ${activeTab === 'cash-sales' ? 'text-emerald-400' : 'text-gray-400'}`} />
+                <span>Record Cash Sale</span>
+              </div>
+              <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${
+                activeTab === 'cash-sales' ? 'bg-slate-800 text-emerald-300' : 'bg-emerald-50 text-emerald-700'
+              }`}>
+                POS Cash
+              </span>
+            </button>
+
+            {/* Operations & Management */}
+            <div className="pt-3 pb-1 border-t border-gray-100 px-3 text-[10px] font-bold tracking-wider text-gray-400 uppercase">
+              Operations &amp; Tools
+            </div>
+
+            {/* 5. Registered Customers */}
+            <button
+              type="button"
+              onClick={() => {
+                setActiveTab('customers');
+                fetchCustomers();
+                setIsMobileMenuOpen(false);
+              }}
+              className={`w-full flex items-center justify-between px-3 py-2.5 rounded-xl text-xs font-semibold transition ${
+                activeTab === 'customers'
+                  ? 'bg-slate-900 text-white shadow-xs'
+                  : 'text-gray-600 hover:bg-gray-50 hover:text-gray-900'
+              }`}
+            >
+              <div className="flex items-center gap-2.5">
+                <Users className={`w-4 h-4 ${activeTab === 'customers' ? 'text-sky-400' : 'text-gray-400'}`} />
+                <span>Registered Customers</span>
+              </div>
+              <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${
+                activeTab === 'customers' ? 'bg-slate-800 text-sky-300' : 'bg-gray-100 text-gray-600'
+              }`}>
+                {customers.length}
+              </span>
+            </button>
+
+            {/* 6. M-Pesa STK Launcher */}
+            <button
+              type="button"
+              onClick={() => {
+                setActiveTab('stk');
+                setIsMobileMenuOpen(false);
+              }}
+              className={`w-full flex items-center justify-between px-3 py-2.5 rounded-xl text-xs font-semibold transition ${
+                activeTab === 'stk'
+                  ? 'bg-slate-900 text-white shadow-xs'
+                  : 'text-gray-600 hover:bg-gray-50 hover:text-gray-900'
+              }`}
+            >
+              <div className="flex items-center gap-2.5">
+                <Smartphone className={`w-4 h-4 ${activeTab === 'stk' ? 'text-sky-400' : 'text-gray-400'}`} />
+                <span>M-Pesa STK Launcher</span>
+              </div>
+            </button>
+
+            {/* 7. Account Settings */}
+            <button
+              type="button"
+              onClick={() => {
+                setActiveTab('account');
+                setIsMobileMenuOpen(false);
+              }}
+              className={`w-full flex items-center justify-between px-3 py-2.5 rounded-xl text-xs font-semibold transition ${
+                activeTab === 'account'
+                  ? 'bg-slate-900 text-white shadow-xs'
+                  : 'text-gray-600 hover:bg-gray-50 hover:text-gray-900'
+              }`}
+            >
+              <div className="flex items-center gap-2.5">
+                <KeyRound className={`w-4 h-4 ${activeTab === 'account' ? 'text-sky-400' : 'text-gray-400'}`} />
+                <span>Account Settings</span>
+              </div>
+            </button>
+          </nav>
+
+          {/* Quick Shortcuts */}
+          <div className="pt-3 border-t border-gray-100 space-y-2">
+            <button
+              type="button"
+              onClick={() => setActiveTab('cash-sales')}
+              className="w-full py-2 px-3 bg-emerald-50 hover:bg-emerald-100 text-emerald-800 font-semibold rounded-xl text-xs transition flex items-center justify-center gap-1.5 border border-emerald-200/60 shadow-2xs"
+            >
+              <DollarSign className="w-3.5 h-3.5 text-emerald-600" />
+              <span>Record Cash Sale</span>
+            </button>
+
+            <button
+              type="button"
+              onClick={handleOpenAddProduct}
+              className="w-full py-2 px-3 bg-sky-50 hover:bg-sky-100 text-sky-700 font-semibold rounded-xl text-xs transition flex items-center justify-center gap-1.5 border border-sky-200/60 shadow-2xs"
+            >
+              <Plus className="w-3.5 h-3.5 text-sky-600" />
+              <span>Add New Bag</span>
+            </button>
+
+            <Link
+              to="/"
+              className="w-full py-2 px-3 bg-gray-50 hover:bg-gray-100 text-gray-700 font-medium rounded-xl text-xs transition flex items-center justify-center gap-1.5 border border-gray-200/60"
+            >
+              <ExternalLink className="w-3.5 h-3.5 text-gray-400" />
+              <span>View Storefront</span>
+            </Link>
           </div>
-          <div className="text-2xl font-black text-emerald-600">KES {totalDepositsAll.toLocaleString()}</div>
-          <div className="text-[11px] text-emerald-600 font-medium">Real cash received</div>
-        </div>
 
-        <div className="bg-white p-5 rounded-2xl border border-gray-100 shadow-xs space-y-1">
-          <div className="flex items-center justify-between text-gray-400">
-            <span className="text-xs font-medium">Outstanding Balances</span>
-            <Wallet className="w-4 h-4 text-amber-500" />
+          {/* Admin Profile & Sign Out */}
+          <div className="pt-3 border-t border-gray-100 flex items-center justify-between text-xs text-gray-500">
+            <div className="flex items-center gap-2 truncate">
+              <div className="w-6 h-6 rounded-full bg-slate-900 text-white flex items-center justify-center text-[10px] font-bold uppercase shrink-0">
+                {user?.username?.slice(0, 1) || 'A'}
+              </div>
+              <span className="truncate font-semibold text-gray-800">{user?.username}</span>
+            </div>
+            <button
+              type="button"
+              onClick={logout}
+              className="p-1.5 text-gray-400 hover:text-rose-600 rounded-lg transition"
+              title="Sign Out"
+            >
+              <LogOut className="w-3.5 h-3.5" />
+            </button>
           </div>
-          <div className="text-2xl font-black text-amber-600">KES {totalBalancesAll.toLocaleString()}</div>
-          <div className="text-[11px] text-amber-700 font-medium">Pending on delivery/bags</div>
-        </div>
+        </aside>
 
-        <div className="bg-white p-5 rounded-2xl border border-gray-100 shadow-xs space-y-1">
-          <div className="flex items-center justify-between text-gray-400">
-            <span className="text-xs font-medium">Products Inventory</span>
-            <Package className="w-4 h-4 text-sky-500" />
-          </div>
-          <div className="text-2xl font-black text-slate-800">{products.length} Items</div>
-          <div className="text-[11px] text-sky-600 font-medium">{pendingOrdersCount} orders pending</div>
-        </div>
-      </div>
+        {/* ========================================================= */}
+        {/* MAIN CONTENT AREA */}
+        {/* ========================================================= */}
+        <div className="flex-1 w-full min-w-0 space-y-6">
+          {/* TAB 0: STORE ADMINISTRATION DASHBOARD */}
+          {activeTab === 'dashboard' && (
+            <div className="space-y-6">
+              {/* Dashboard Header Bar */}
+              <div className="bg-white rounded-2xl border border-gray-100 shadow-xs p-5 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+                <div>
+                  <div className="flex items-center gap-2">
+                    <span className="text-xs font-bold uppercase tracking-wider text-sky-600 bg-sky-50 px-2.5 py-0.5 rounded-full border border-sky-100">
+                      Store Administration
+                    </span>
+                    <span className="text-gray-300">•</span>
+                    <span className="text-xs font-semibold text-gray-500">Admin Panel Dashboard</span>
+                  </div>
+                  <h1 className="text-xl sm:text-2xl font-black text-gray-900 tracking-tight mt-1.5 flex items-center gap-2.5">
+                    <LayoutDashboard className="w-6 h-6 text-sky-600" />
+                    <span>Store Administration Dashboard</span>
+                  </h1>
+                  <p className="text-xs text-gray-500 mt-1">
+                    Welcome back, <strong className="text-gray-800">{user?.username}</strong>. Central overview and command center for customer bag orders, upfront deposits, trade calculations, and product inventory.
+                  </p>
+                </div>
 
-      {/* Navigation Tabs */}
-      <div className="border-b border-gray-200 flex gap-6 text-xs font-bold overflow-x-auto pb-0.5">
-        <button
-          type="button"
-          onClick={() => setActiveTab('orders')}
-          className={`pb-3 transition border-b-2 flex items-center gap-1.5 whitespace-nowrap ${
-            activeTab === 'orders'
-              ? 'border-sky-600 text-sky-600'
-              : 'border-transparent text-gray-500 hover:text-gray-800'
-          }`}
-        >
-          <ShoppingCart className="w-4 h-4" />
-          <span>Orders, Bags &amp; Balances ({orders.length})</span>
-        </button>
+                <div className="flex items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      fetchAdminData();
+                      fetchAnalytics();
+                      fetchCustomers();
+                      showNotification('Store data synchronized with database and Safaricom.');
+                    }}
+                    className="px-3.5 py-2 bg-white border border-gray-200 hover:bg-gray-50 rounded-xl text-gray-700 transition text-xs font-semibold flex items-center gap-1.5 shadow-2xs cursor-pointer"
+                    title="Sync latest customer payments and transactions"
+                  >
+                    <RefreshCw className={`w-3.5 h-3.5 ${loading ? 'animate-spin' : ''}`} />
+                    <span>Sync Live</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setActiveTab('cash-sales')}
+                    className="px-3.5 py-2 bg-emerald-600 hover:bg-emerald-700 text-white font-semibold rounded-xl text-xs transition flex items-center gap-1.5 shadow-xs cursor-pointer"
+                  >
+                    <DollarSign className="w-4 h-4" />
+                    <span>Record Cash Sale</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={handleOpenAddProduct}
+                    className="px-4 py-2 bg-slate-900 hover:bg-slate-800 text-white font-semibold rounded-xl text-xs transition flex items-center gap-1.5 shadow-xs cursor-pointer"
+                  >
+                    <Plus className="w-4 h-4" />
+                    <span>Add Bag</span>
+                  </button>
+                </div>
+              </div>
 
-        <button
-          type="button"
-          onClick={() => {
-            setActiveTab('analytics');
-            fetchAnalytics(analyticsPeriod, customRange);
-          }}
-          className={`pb-3 transition border-b-2 flex items-center gap-1.5 whitespace-nowrap ${
-            activeTab === 'analytics'
-              ? 'border-sky-600 text-sky-600'
-              : 'border-transparent text-gray-500 hover:text-gray-800'
-          }`}
-        >
-          <BarChart3 className="w-4 h-4" />
-          <span>Trade Summaries &amp; Calculations (Week/Month/Year)</span>
-        </button>
+              {/* Core Navigation & Operations Hub Cards */}
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+                {/* 1. Order Bag & Balances Hub */}
+                <div
+                  onClick={() => setActiveTab('orders')}
+                  className="bg-gradient-to-br from-white via-white to-sky-50/50 p-5 rounded-2xl border border-sky-100 shadow-xs hover:border-sky-300 hover:shadow-md transition cursor-pointer group flex flex-col justify-between"
+                >
+                  <div className="space-y-3">
+                    <div className="flex items-center justify-between">
+                      <div className="w-10 h-10 rounded-xl bg-sky-100 text-sky-700 flex items-center justify-center group-hover:scale-105 transition shadow-2xs">
+                        <ShoppingBag className="w-5 h-5" />
+                      </div>
+                      <span className="text-[10px] font-bold uppercase tracking-wider text-sky-700 bg-sky-100/70 px-2.5 py-0.5 rounded-full border border-sky-200/50">
+                        {orders.length} Bags Placed
+                      </span>
+                    </div>
+                    <div>
+                      <h3 className="font-extrabold text-sm text-gray-900 group-hover:text-sky-700 transition flex items-center gap-1.5">
+                        <span>Order Bag &amp; Balances</span>
+                        <ChevronRight className="w-3.5 h-3.5 text-gray-400 group-hover:text-sky-600 group-hover:translate-x-0.5 transition" />
+                      </h3>
+                      <p className="text-[11px] text-gray-500 mt-1 leading-relaxed">
+                        Inspect items inside customer bags, verify Lipa Na M-Pesa deposits, record settled balances, and print delivery slips.
+                      </p>
+                    </div>
+                  </div>
+                  <div className="pt-3 mt-3 border-t border-sky-100/60 flex items-center justify-between text-xs">
+                    <span className="text-gray-500 font-medium">Balances Due:</span>
+                    <span className="font-bold text-amber-700">KES {totalBalancesAll.toLocaleString()}</span>
+                  </div>
+                </div>
 
-        <button
-          type="button"
-          onClick={() => setActiveTab('products')}
-          className={`pb-3 transition border-b-2 flex items-center gap-1.5 whitespace-nowrap ${
-            activeTab === 'products'
-              ? 'border-sky-600 text-sky-600'
-              : 'border-transparent text-gray-500 hover:text-gray-800'
-          }`}
-        >
-          <Package className="w-4 h-4" />
-          <span>Products Inventory ({products.length})</span>
-        </button>
+                {/* 2. Trade Summaries & Calculations Hub */}
+                <div
+                  onClick={() => {
+                    setActiveTab('analytics');
+                    fetchAnalytics(analyticsPeriod, customRange);
+                  }}
+                  className="bg-gradient-to-br from-white via-white to-purple-50/50 p-5 rounded-2xl border border-purple-100 shadow-xs hover:border-purple-300 hover:shadow-md transition cursor-pointer group flex flex-col justify-between"
+                >
+                  <div className="space-y-3">
+                    <div className="flex items-center justify-between">
+                      <div className="w-10 h-10 rounded-xl bg-purple-100 text-purple-700 flex items-center justify-center group-hover:scale-105 transition shadow-2xs">
+                        <BarChart3 className="w-5 h-5" />
+                      </div>
+                      <span className="text-[10px] font-bold uppercase tracking-wider text-purple-700 bg-purple-100/70 px-2.5 py-0.5 rounded-full border border-purple-200/50">
+                        {depositRate}% Secured
+                      </span>
+                    </div>
+                    <div>
+                      <h3 className="font-extrabold text-sm text-gray-900 group-hover:text-purple-700 transition flex items-center gap-1.5">
+                        <span>Trade Summaries &amp; Calculations</span>
+                        <ChevronRight className="w-3.5 h-3.5 text-gray-400 group-hover:text-purple-600 group-hover:translate-x-0.5 transition" />
+                      </h3>
+                      <p className="text-[11px] text-gray-500 mt-1 leading-relaxed">
+                        Track gross bag sales volume, M-Pesa upfront collection rates, accounts receivable, and custom time-series calculations.
+                      </p>
+                    </div>
+                  </div>
+                  <div className="pt-3 mt-3 border-t border-purple-100/60 flex items-center justify-between text-xs">
+                    <span className="text-gray-500 font-medium">Gross Trade:</span>
+                    <span className="font-bold text-purple-800">KES {totalTradeAll.toLocaleString()}</span>
+                  </div>
+                </div>
 
-        <button
-          type="button"
-          onClick={() => setActiveTab('stk')}
-          className={`pb-3 transition border-b-2 flex items-center gap-1.5 whitespace-nowrap ${
-            activeTab === 'stk'
-              ? 'border-sky-600 text-sky-600'
-              : 'border-transparent text-gray-500 hover:text-gray-800'
-          }`}
-        >
-          <Smartphone className="w-4 h-4" />
-          <span>M-Pesa STK Push Launcher</span>
-        </button>
+                {/* 3. Product Inventory Hub */}
+                <div
+                  onClick={() => setActiveTab('products')}
+                  className="bg-gradient-to-br from-white via-white to-sky-50/50 p-5 rounded-2xl border border-sky-100 shadow-xs hover:border-sky-300 hover:shadow-md transition cursor-pointer group flex flex-col justify-between"
+                >
+                  <div className="space-y-3">
+                    <div className="flex items-center justify-between">
+                      <div className="w-10 h-10 rounded-xl bg-sky-100 text-sky-700 flex items-center justify-center group-hover:scale-105 transition shadow-2xs">
+                        <Package className="w-5 h-5" />
+                      </div>
+                      <span className="text-[10px] font-bold uppercase tracking-wider text-sky-700 bg-sky-100/70 px-2.5 py-0.5 rounded-full border border-sky-200/50">
+                        {products.length} Products
+                      </span>
+                    </div>
+                    <div>
+                      <h3 className="font-extrabold text-sm text-gray-900 group-hover:text-sky-700 transition flex items-center gap-1.5">
+                        <span>Product Inventory</span>
+                        <ChevronRight className="w-3.5 h-3.5 text-gray-400 group-hover:text-sky-600 group-hover:translate-x-0.5 transition" />
+                      </h3>
+                      <p className="text-[11px] text-gray-500 mt-1 leading-relaxed">
+                        Manage luxury handbag stock, bag reference codes, catalog pricing, visibility toggles, and photo upload assets.
+                      </p>
+                    </div>
+                  </div>
+                  <div className="pt-3 mt-3 border-t border-sky-100/60 flex items-center justify-between text-xs">
+                    <span className="text-gray-500 font-medium">Stock Status:</span>
+                    <span className="font-bold text-sky-700">{products.filter(p => p.stock > 0).length} In Stock</span>
+                  </div>
+                </div>
 
-        <button
-          type="button"
-          onClick={() => {
-            setActiveTab('customers');
-            fetchCustomers();
-          }}
-          className={`pb-3 transition border-b-2 flex items-center gap-1.5 whitespace-nowrap ${
-            activeTab === 'customers'
-              ? 'border-sky-600 text-sky-600'
-              : 'border-transparent text-gray-500 hover:text-gray-800'
-          }`}
-        >
-          <Users className="w-4 h-4" />
-          <span>Registered Customers ({customers.length})</span>
-        </button>
+                {/* 4. Record Cash Sale Hub */}
+                <div
+                  onClick={() => setActiveTab('cash-sales')}
+                  className="bg-gradient-to-br from-white via-white to-emerald-50/50 p-5 rounded-2xl border border-emerald-100 shadow-xs hover:border-emerald-300 hover:shadow-md transition cursor-pointer group flex flex-col justify-between"
+                >
+                  <div className="space-y-3">
+                    <div className="flex items-center justify-between">
+                      <div className="w-10 h-10 rounded-xl bg-emerald-100 text-emerald-700 flex items-center justify-center group-hover:scale-105 transition shadow-2xs">
+                        <DollarSign className="w-5 h-5" />
+                      </div>
+                      <span className="text-[10px] font-bold uppercase tracking-wider text-emerald-700 bg-emerald-100/70 px-2.5 py-0.5 rounded-full border border-emerald-200/50">
+                        POS &amp; Counter
+                      </span>
+                    </div>
+                    <div>
+                      <h3 className="font-extrabold text-sm text-gray-900 group-hover:text-emerald-700 transition flex items-center gap-1.5">
+                        <span>Record Cash Sale</span>
+                        <ChevronRight className="w-3.5 h-3.5 text-gray-400 group-hover:text-emerald-600 group-hover:translate-x-0.5 transition" />
+                      </h3>
+                      <p className="text-[11px] text-gray-500 mt-1 leading-relaxed">
+                        Directly record walk-in counter sales, issue official receipts, and automatically deduct handbag inventory.
+                      </p>
+                    </div>
+                  </div>
+                  <div className="pt-3 mt-3 border-t border-emerald-100/60 flex items-center justify-between text-xs">
+                    <span className="text-gray-500 font-medium">Cash Collected:</span>
+                    <span className="font-bold text-emerald-700">KES {(analyticsData?.payment_methods?.cash || 0).toLocaleString()}</span>
+                  </div>
+                </div>
+              </div>
 
-        <button
-          type="button"
-          onClick={() => setActiveTab('account')}
-          className={`pb-3 transition border-b-2 flex items-center gap-1.5 whitespace-nowrap ${
-            activeTab === 'account'
-              ? 'border-sky-600 text-sky-600'
-              : 'border-transparent text-gray-500 hover:text-gray-800'
-          }`}
-        >
-          <KeyRound className="w-4 h-4" />
-          <span>Account Settings</span>
-        </button>
-      </div>
+              {/* Overview Metric Cards (Bags, Deposits, Balances, Inventory) */}
+              <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+                <div 
+                  onClick={() => setActiveTab('orders')} 
+                  className="bg-white p-5 rounded-2xl border border-gray-100 shadow-xs space-y-2 cursor-pointer hover:border-purple-200 hover:shadow-sm transition group"
+                >
+                  <div className="flex items-center justify-between text-gray-400">
+                    <span className="text-xs font-semibold group-hover:text-purple-600 transition">Total Bag Trade</span>
+                    <div className="w-8 h-8 rounded-xl bg-purple-50 text-purple-600 flex items-center justify-center">
+                      <ShoppingCart className="w-4 h-4" />
+                    </div>
+                  </div>
+                  <div className="text-2xl font-black text-gray-900">KES {totalTradeAll.toLocaleString()}</div>
+                  <div className="flex items-center justify-between text-[11px] text-gray-400">
+                    <span>{orders.length} customer bags placed</span>
+                    <ChevronRight className="w-3.5 h-3.5 text-gray-300 group-hover:text-purple-600 transition" />
+                  </div>
+                </div>
+
+                <div 
+                  onClick={() => setActiveTab('orders')} 
+                  className="bg-white p-5 rounded-2xl border border-gray-100 shadow-xs space-y-2 cursor-pointer hover:border-emerald-200 hover:shadow-sm transition group"
+                >
+                  <div className="flex items-center justify-between text-gray-400">
+                    <span className="text-xs font-semibold group-hover:text-emerald-600 transition">Deposits Collected</span>
+                    <div className="w-8 h-8 rounded-xl bg-emerald-50 text-emerald-600 flex items-center justify-center">
+                      <DollarSign className="w-4 h-4" />
+                    </div>
+                  </div>
+                  <div className="text-2xl font-black text-emerald-600">KES {totalDepositsAll.toLocaleString()}</div>
+                  <div className="flex items-center justify-between text-[11px] text-emerald-600 font-medium">
+                    <span>Real cash received</span>
+                    <ChevronRight className="w-3.5 h-3.5 text-gray-300 group-hover:text-emerald-600 transition" />
+                  </div>
+                </div>
+
+                <div 
+                  onClick={() => setActiveTab('orders')} 
+                  className="bg-white p-5 rounded-2xl border border-gray-100 shadow-xs space-y-2 cursor-pointer hover:border-amber-200 hover:shadow-sm transition group"
+                >
+                  <div className="flex items-center justify-between text-gray-400">
+                    <span className="text-xs font-semibold group-hover:text-amber-600 transition">Outstanding Balances</span>
+                    <div className="w-8 h-8 rounded-xl bg-amber-50 text-amber-600 flex items-center justify-center">
+                      <Wallet className="w-4 h-4" />
+                    </div>
+                  </div>
+                  <div className="text-2xl font-black text-amber-600">KES {totalBalancesAll.toLocaleString()}</div>
+                  <div className="flex items-center justify-between text-[11px] text-amber-700 font-medium">
+                    <span>Pending on delivery</span>
+                    <ChevronRight className="w-3.5 h-3.5 text-gray-300 group-hover:text-amber-600 transition" />
+                  </div>
+                </div>
+
+                <div 
+                  onClick={() => setActiveTab('products')} 
+                  className="bg-white p-5 rounded-2xl border border-gray-100 shadow-xs space-y-2 cursor-pointer hover:border-sky-200 hover:shadow-sm transition group"
+                >
+                  <div className="flex items-center justify-between text-gray-400">
+                    <span className="text-xs font-semibold group-hover:text-sky-600 transition">Product Inventory</span>
+                    <div className="w-8 h-8 rounded-xl bg-sky-50 text-sky-600 flex items-center justify-center">
+                      <Package className="w-4 h-4" />
+                    </div>
+                  </div>
+                  <div className="text-2xl font-black text-slate-800">{products.length} Items</div>
+                  <div className="flex items-center justify-between text-[11px] text-sky-600 font-medium">
+                    <span>{pendingOrdersCount} orders pending</span>
+                    <ChevronRight className="w-3.5 h-3.5 text-gray-300 group-hover:text-sky-600 transition" />
+                  </div>
+                </div>
+              </div>
+
+              {/* Upfront Deposit Cash Flow Health */}
+              <div className="bg-white rounded-2xl border border-gray-100 shadow-xs p-5 space-y-3">
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+                  <div>
+                    <h3 className="font-bold text-gray-900 text-xs uppercase tracking-wider flex items-center gap-2">
+                      <TrendingUp className="w-4 h-4 text-emerald-600" />
+                      <span>Upfront Deposit &amp; Cash Flow Health</span>
+                    </h3>
+                    <p className="text-[11px] text-gray-500 mt-0.5">
+                      Percentage of gross bag value collected upfront via Lipa Na M-Pesa or Card.
+                    </p>
+                  </div>
+                  <div className="text-right">
+                    <span className="text-lg font-black text-emerald-700">{depositRate}%</span>
+                    <span className="text-xs text-gray-400 ml-1">Secured</span>
+                  </div>
+                </div>
+
+                <div className="w-full bg-gray-100 h-2.5 rounded-full overflow-hidden flex">
+                  <div 
+                    className="bg-emerald-500 h-full transition-all duration-500" 
+                    style={{ width: `${Math.min(100, Math.max(0, depositRate))}%` }} 
+                  />
+                  <div 
+                    className="bg-amber-400 h-full transition-all duration-500" 
+                    style={{ width: `${Math.min(100, Math.max(0, 100 - depositRate))}%` }} 
+                  />
+                </div>
+
+                <div className="flex flex-col sm:flex-row justify-between text-[11px] text-gray-500 gap-1 pt-1">
+                  <span className="flex items-center gap-1.5 font-medium text-emerald-700">
+                    <span className="w-2 h-2 rounded-full bg-emerald-500" />
+                    Deposits Collected: KES {totalDepositsAll.toLocaleString()}
+                  </span>
+                  <span className="flex items-center gap-1.5 font-medium text-amber-700">
+                    <span className="w-2 h-2 rounded-full bg-amber-400" />
+                    Remaining on Delivery: KES {totalBalancesAll.toLocaleString()}
+                  </span>
+                </div>
+              </div>
+
+              {/* Recent Orders Snapshot */}
+              <div className="bg-white rounded-2xl border border-gray-100 shadow-xs overflow-hidden space-y-3">
+                <div className="p-4 bg-gray-50/75 border-b border-gray-100 flex items-center justify-between">
+                  <div>
+                    <h3 className="font-bold text-gray-900 text-sm flex items-center gap-2">
+                      <ShoppingCart className="w-4 h-4 text-sky-600" />
+                      <span>Recent Bag Orders &amp; Balances</span>
+                    </h3>
+                    <p className="text-[11px] text-gray-500">Live order queue and payment collection</p>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => setActiveTab('orders')}
+                    className="text-xs font-semibold text-sky-600 hover:text-sky-700 flex items-center gap-1"
+                  >
+                    <span>View All Orders ({orders.length})</span>
+                    <ChevronRight className="w-3.5 h-3.5" />
+                  </button>
+                </div>
+
+                <div className="overflow-x-auto">
+                  <table className="w-full text-left text-xs">
+                    <thead className="bg-gray-50/50 border-b border-gray-100 text-gray-500 uppercase font-semibold">
+                      <tr>
+                        <th className="py-2.5 px-4">Order ID</th>
+                        <th className="py-2.5 px-4">Customer</th>
+                        <th className="py-2.5 px-4">Total</th>
+                        <th className="py-2.5 px-4 text-emerald-700">Deposit</th>
+                        <th className="py-2.5 px-4 text-amber-700">Balance</th>
+                        <th className="py-2.5 px-4">Status</th>
+                        <th className="py-2.5 px-4 text-right">Actions</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-gray-100 text-gray-700">
+                      {orders.length === 0 ? (
+                        <tr>
+                          <td colSpan={7} className="py-6 text-center text-gray-400">
+                            No orders placed yet.
+                          </td>
+                        </tr>
+                      ) : (
+                        orders.slice(0, 5).map((o) => (
+                          <tr key={o.order_id} className="hover:bg-gray-50/50 transition">
+                            <td className="py-3 px-4 font-mono font-bold text-sky-700">
+                              #{String(o.order_id).slice(0, 8)}
+                            </td>
+                            <td className="py-3 px-4">
+                              <div className="font-bold text-gray-900">{o.customer_name}</div>
+                              <div className="text-[11px] text-gray-400">{o.customer_phone}</div>
+                            </td>
+                            <td className="py-3 px-4 font-bold text-gray-900">
+                              KES {Number(o.total_amount).toLocaleString()}
+                            </td>
+                            <td className="py-3 px-4 font-bold text-emerald-700">
+                              KES {Number(o.deposit_amount).toLocaleString()}
+                            </td>
+                            <td className="py-3 px-4 font-bold text-amber-700">
+                              KES {Number(o.balance_due).toLocaleString()}
+                            </td>
+                            <td className="py-3 px-4">
+                              <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold uppercase ${
+                                o.status === 'paid' ? 'bg-emerald-50 text-emerald-700' :
+                                o.status === 'partially_paid' ? 'bg-sky-50 text-sky-700' :
+                                'bg-amber-50 text-amber-700'
+                              }`}>
+                                {o.status.replace('_', ' ')}
+                              </span>
+                            </td>
+                            <td className="py-3 px-4 text-right">
+                              <div className="flex items-center justify-end gap-1.5">
+                                <button
+                                  type="button"
+                                  onClick={() => setPrintableOrder(o)}
+                                  className="p-1.5 bg-gray-100 hover:bg-gray-200 text-gray-700 rounded-lg transition"
+                                  title="Print Bag Delivery Slip"
+                                >
+                                  <Printer className="w-3.5 h-3.5" />
+                                </button>
+                                {Number(o.balance_due) > 0 && (
+                                  <button
+                                    type="button"
+                                    onClick={() => handleOpenRecordBalance(o)}
+                                    className="px-2 py-1 bg-amber-500 hover:bg-amber-600 text-white rounded-lg text-[10px] font-bold transition"
+                                  >
+                                    Record Pay
+                                  </button>
+                                )}
+                              </div>
+                            </td>
+                          </tr>
+                        ))
+                      )}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+
+              {/* 2-Column Spotlight Widgets */}
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                {/* Bag Catalog Snapshot with Reference Code */}
+                <div className="bg-white rounded-2xl border border-gray-100 shadow-xs p-5 space-y-4">
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <h3 className="font-bold text-gray-900 text-sm flex items-center gap-2">
+                        <Package className="w-4 h-4 text-sky-600" />
+                        <span>Bag Inventory Highlights</span>
+                      </h3>
+                      <p className="text-[11px] text-gray-500">Fast reference &amp; stock tracker</p>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => setActiveTab('products')}
+                      className="text-xs font-semibold text-sky-600 hover:text-sky-700 flex items-center gap-1"
+                    >
+                      <span>Inventory ({products.length})</span>
+                      <ChevronRight className="w-3.5 h-3.5" />
+                    </button>
+                  </div>
+
+                  <div className="divide-y divide-gray-100 text-xs">
+                    {products.slice(0, 4).map((p) => (
+                      <div key={p.id} className="py-2.5 flex items-center justify-between gap-3">
+                        <div className="flex items-center gap-3 min-w-0">
+                          <div className="w-9 h-9 rounded-lg bg-gray-100 overflow-hidden shrink-0 border border-gray-200">
+                            <img
+                              src={p.image?.startsWith('http') ? p.image : (p.image ? `http://localhost:8000${p.image.startsWith('/') ? '' : '/'}${p.image}` : 'https://via.placeholder.com/100')}
+                              alt={p.title}
+                              className="w-full h-full object-cover"
+                            />
+                          </div>
+                          <div className="min-w-0">
+                            <div className="font-bold text-gray-900 truncate">{p.title}</div>
+                            <div className="flex items-center gap-1.5 mt-0.5">
+                              <span className="font-mono text-[10px] text-sky-700 bg-sky-50 px-1.5 py-0.2 rounded border border-sky-100">
+                                {p.reference || 'REF-BAG'}
+                              </span>
+                              <span className="text-[11px] text-gray-400">KES {Number(p.price).toLocaleString()}</span>
+                            </div>
+                          </div>
+                        </div>
+                        <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full shrink-0 ${
+                          p.stock <= 5 ? 'bg-amber-50 text-amber-700' : 'bg-emerald-50 text-emerald-700'
+                        }`}>
+                          {p.stock} left
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+
+                  <button
+                    type="button"
+                    onClick={handleOpenAddProduct}
+                    className="w-full py-2 bg-slate-900 hover:bg-slate-800 text-white rounded-xl text-xs font-semibold transition flex items-center justify-center gap-1.5 shadow-2xs"
+                  >
+                    <Plus className="w-3.5 h-3.5" />
+                    <span>Add New Bag</span>
+                  </button>
+                </div>
+
+                {/* Customers in Database & STK Launcher */}
+                <div className="bg-white rounded-2xl border border-gray-100 shadow-xs p-5 space-y-4">
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <h3 className="font-bold text-gray-900 text-sm flex items-center gap-2">
+                        <Users className="w-4 h-4 text-sky-600" />
+                        <span>Registered Customers in Database</span>
+                      </h3>
+                      <p className="text-[11px] text-gray-500">Verified shopper accounts</p>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setActiveTab('customers');
+                        fetchCustomers();
+                      }}
+                      className="text-xs font-semibold text-sky-600 hover:text-sky-700 flex items-center gap-1"
+                    >
+                      <span>All ({customers.length})</span>
+                      <ChevronRight className="w-3.5 h-3.5" />
+                    </button>
+                  </div>
+
+                  <div className="divide-y divide-gray-100 text-xs">
+                    {customers.length === 0 ? (
+                      <div className="py-6 text-center text-gray-400">No customer accounts registered yet.</div>
+                    ) : (
+                      customers.slice(0, 3).map((c) => (
+                        <div key={c.id} className="py-2.5 flex items-center justify-between">
+                          <div className="flex items-center gap-2.5">
+                            <div className="w-7 h-7 rounded-full bg-sky-100 text-sky-700 font-bold flex items-center justify-center text-xs uppercase">
+                              {c.username.slice(0, 2)}
+                            </div>
+                            <div>
+                              <div className="font-bold text-gray-900">{c.username}</div>
+                              <div className="text-[11px] text-gray-400">{c.email}</div>
+                            </div>
+                          </div>
+                          <span className="text-[10px] font-bold text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded-full border border-emerald-100">
+                            {c.orders_count} orders
+                          </span>
+                        </div>
+                      ))
+                    )}
+                  </div>
+
+                  {/* Fast STK launcher callout */}
+                  <div className="p-3.5 bg-gradient-to-br from-emerald-50 to-teal-50 border border-emerald-100 rounded-xl flex items-center justify-between">
+                    <div>
+                      <div className="font-bold text-emerald-900 text-xs flex items-center gap-1.5">
+                        <Smartphone className="w-3.5 h-3.5 text-emerald-600" />
+                        <span>M-Pesa STK Prompt Tool</span>
+                      </div>
+                      <div className="text-[11px] text-emerald-700 mt-0.5">Collect balance directly via customer phone</div>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => setActiveTab('stk')}
+                      className="px-3 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-xs font-bold transition shadow-2xs"
+                    >
+                      Launch
+                    </button>
+                  </div>
+                </div>
+              </div>
+            </div>
+          )}
 
       {/* ------------------------------------------------------------- */}
-      {/* TAB 1: ORDERS, BAGS & BALANCE MANAGEMENT */}
+      {/* TAB 1: ORDER BAG & BALANCES */}
       {/* ------------------------------------------------------------- */}
       {activeTab === 'orders' && (
         <div className="bg-white rounded-2xl border border-gray-100 shadow-xs overflow-hidden space-y-4">
           <div className="p-4 bg-gray-50/75 border-b border-gray-100 flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3">
             <div>
-              <h3 className="font-bold text-gray-900 text-sm">Customer Orders &amp; Bag Balances</h3>
-              <p className="text-xs text-gray-500">
-                Track customer deposits paid via M-Pesa, view items in each bag, and collect remaining balances.
+              <div className="flex items-center gap-2 mb-1">
+                <span className="text-[10px] font-bold uppercase tracking-wider text-sky-600 bg-sky-50 px-2 py-0.5 rounded-full border border-sky-100">
+                  Store Administration
+                </span>
+                <span className="text-gray-300">•</span>
+                <span className="text-[10px] font-semibold text-gray-500">Order Management</span>
+              </div>
+              <h3 className="font-black text-gray-900 text-base flex items-center gap-2">
+                <ShoppingBag className="w-5 h-5 text-sky-600" />
+                <span>Order Bag &amp; Balances</span>
+              </h3>
+              <p className="text-xs text-gray-500 mt-0.5">
+                Track customer deposits paid via M-Pesa, view items inside each bag, and collect remaining balances.
               </p>
             </div>
             <div className="text-xs text-gray-500 flex items-center gap-3">
@@ -1015,16 +1786,23 @@ export default function AdminDashboard() {
       )}
 
       {/* ------------------------------------------------------------- */}
-      {/* TAB 2: TRADE SUMMARIES & FINANCIAL CALCULATOR */}
+      {/* TAB 2: TRADE SUMMARIES & CALCULATIONS */}
       {/* ------------------------------------------------------------- */}
       {activeTab === 'analytics' && (
         <div className="space-y-6">
           <div className="bg-white rounded-2xl border border-gray-100 shadow-xs p-6 space-y-5">
             <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
               <div>
+                <div className="flex items-center gap-2 mb-1">
+                  <span className="text-[10px] font-bold uppercase tracking-wider text-sky-600 bg-sky-50 px-2 py-0.5 rounded-full border border-sky-100">
+                    Store Administration
+                  </span>
+                  <span className="text-gray-300">•</span>
+                  <span className="text-[10px] font-semibold text-gray-500">Financial Calculations</span>
+                </div>
                 <h3 className="font-black text-gray-900 text-lg flex items-center gap-2">
                   <BarChart3 className="w-5 h-5 text-sky-600" />
-                  <span>Trade Summary &amp; Financial Calculations</span>
+                  <span>Trade Summaries &amp; Calculations</span>
                 </h3>
                 <p className="text-xs text-gray-500 mt-0.5">
                   Analyze gross bag trade, deposits collected via M-Pesa, and accounts receivable across any week, month, or year.
@@ -1289,102 +2067,138 @@ export default function AdminDashboard() {
       )}
 
       {/* ------------------------------------------------------------- */}
-      {/* TAB 3: PRODUCTS INVENTORY */}
+      {/* TAB 3: PRODUCT INVENTORY */}
       {/* ------------------------------------------------------------- */}
       {activeTab === 'products' && (
-        <div className="bg-white rounded-2xl border border-gray-100 shadow-xs overflow-hidden">
-          <div className="overflow-x-auto">
-            <table className="w-full text-left text-xs">
-              <thead className="bg-gray-50/75 border-b border-gray-100 text-gray-500 uppercase font-semibold">
-                <tr>
-                  <th className="py-3 px-4">Item</th>
-                  <th className="py-3 px-4">Bag Reference</th>
-                  <th className="py-3 px-4">Category</th>
-                  <th className="py-3 px-4">Price (KES)</th>
-                  <th className="py-3 px-4">Stock</th>
-                  <th className="py-3 px-4">Status</th>
-                  <th className="py-3 px-4 text-right">Actions</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-gray-100 text-gray-700">
-                {products.map((p) => (
-                  <tr key={p.id} className="hover:bg-gray-50/50 transition">
-                    <td className="py-3.5 px-4 flex items-center gap-3">
-                      <div className="w-10 h-10 rounded-lg bg-gray-100 overflow-hidden shrink-0 border border-gray-200">
-                        <img
-                          src={p.image?.startsWith('http') ? p.image : (p.image ? `http://localhost:8000${p.image.startsWith('/') ? '' : '/'}${p.image}` : 'https://via.placeholder.com/100')}
-                          alt={p.title}
-                          className="w-full h-full object-cover"
-                        />
-                      </div>
-                      <div>
-                        <div className="font-bold text-gray-900 line-clamp-1">{p.title}</div>
-                        <div className="text-[11px] text-gray-400 line-clamp-1">{p.description}</div>
-                      </div>
-                    </td>
+        <div className="space-y-4">
+          {/* Product Inventory Header Bar */}
+          <div className="bg-white rounded-2xl border border-gray-100 shadow-xs p-5 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+            <div>
+              <div className="flex items-center gap-2 mb-1">
+                <span className="text-[10px] font-bold uppercase tracking-wider text-sky-600 bg-sky-50 px-2 py-0.5 rounded-full border border-sky-100">
+                  Store Administration
+                </span>
+                <span className="text-gray-300">•</span>
+                <span className="text-[10px] font-semibold text-gray-500">Catalog &amp; Stock</span>
+              </div>
+              <h2 className="text-xl font-black text-gray-900 tracking-tight flex items-center gap-2">
+                <Package className="w-5 h-5 text-sky-600" />
+                <span>Product Inventory</span>
+              </h2>
+              <p className="text-xs text-gray-500 mt-0.5">
+                Manage handbag listings, stock levels, bag reference codes, catalog pricing, and store visibility.
+              </p>
+            </div>
 
-                    <td className="py-3.5 px-4 font-mono font-semibold text-xs text-sky-800">
-                      <span className="bg-sky-50 border border-sky-200/60 px-2 py-0.5 rounded-md">
-                        {p.reference || '—'}
-                      </span>
-                    </td>
+            <div className="flex items-center gap-2">
+              <span className="text-xs font-semibold bg-gray-100 text-gray-700 px-3 py-1.5 rounded-xl border border-gray-200">
+                {products.length} Items Total
+              </span>
+              <button
+                type="button"
+                onClick={handleOpenAddProduct}
+                className="px-4 py-2 bg-slate-900 hover:bg-slate-800 text-white font-semibold rounded-xl text-xs transition flex items-center gap-1.5 shadow-xs cursor-pointer"
+              >
+                <Plus className="w-4 h-4" />
+                <span>Add New Bag</span>
+              </button>
+            </div>
+          </div>
 
-                    <td className="py-3.5 px-4 font-medium text-gray-600">
-                      {p.category_name || 'Uncategorized'}
-                    </td>
-
-                    <td className="py-3.5 px-4 font-bold text-gray-900">
-                      KES {Number(p.price).toLocaleString()}
-                    </td>
-
-                    <td className="py-3.5 px-4">
-                      <span
-                        className={`px-2 py-0.5 rounded-full text-[11px] font-semibold ${
-                          p.stock <= 0
-                            ? 'bg-rose-50 text-rose-700'
-                            : p.stock <= 5
-                            ? 'bg-amber-50 text-amber-700'
-                            : 'bg-emerald-50 text-emerald-700'
-                        }`}
-                      >
-                        {p.stock} in stock
-                      </span>
-                    </td>
-
-                    <td className="py-3.5 px-4">
-                      <span
-                        className={`px-2 py-0.5 rounded-full text-[10px] font-bold uppercase ${
-                          p.is_active ? 'bg-sky-50 text-sky-700' : 'bg-gray-100 text-gray-500'
-                        }`}
-                      >
-                        {p.is_active ? 'Active' : 'Hidden'}
-                      </span>
-                    </td>
-
-                    <td className="py-3.5 px-4 text-right">
-                      <div className="flex items-center justify-end gap-1">
-                        <button
-                          type="button"
-                          onClick={() => handleOpenEditProduct(p)}
-                          className="p-1.5 text-gray-500 hover:text-sky-600 hover:bg-gray-100 rounded-lg transition"
-                          title="Edit Product"
-                        >
-                          <Edit2 className="w-3.5 h-3.5" />
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => handleDeleteProduct(p.id, p.title)}
-                          className="p-1.5 text-gray-500 hover:text-rose-600 hover:bg-gray-100 rounded-lg transition"
-                          title="Delete Product"
-                        >
-                          <Trash2 className="w-3.5 h-3.5" />
-                        </button>
-                      </div>
-                    </td>
+          <div className="bg-white rounded-2xl border border-gray-100 shadow-xs overflow-hidden">
+            <div className="overflow-x-auto">
+              <table className="w-full text-left text-xs">
+                <thead className="bg-gray-50/75 border-b border-gray-100 text-gray-500 uppercase font-semibold">
+                  <tr>
+                    <th className="py-3 px-4">Item</th>
+                    <th className="py-3 px-4">Bag Reference</th>
+                    <th className="py-3 px-4">Category</th>
+                    <th className="py-3 px-4">Price (KES)</th>
+                    <th className="py-3 px-4">Stock</th>
+                    <th className="py-3 px-4">Status</th>
+                    <th className="py-3 px-4 text-right">Actions</th>
                   </tr>
-                ))}
-              </tbody>
-            </table>
+                </thead>
+                <tbody className="divide-y divide-gray-100 text-gray-700">
+                  {products.map((p) => (
+                    <tr key={p.id} className="hover:bg-gray-50/50 transition">
+                      <td className="py-3.5 px-4 flex items-center gap-3">
+                        <div className="w-10 h-10 rounded-lg bg-gray-100 overflow-hidden shrink-0 border border-gray-200">
+                          <img
+                            src={p.image?.startsWith('http') ? p.image : (p.image ? `http://localhost:8000${p.image.startsWith('/') ? '' : '/'}${p.image}` : 'https://via.placeholder.com/100')}
+                            alt={p.title}
+                            className="w-full h-full object-cover"
+                          />
+                        </div>
+                        <div>
+                          <div className="font-bold text-gray-900 line-clamp-1">{p.title}</div>
+                          <div className="text-[11px] text-gray-400 line-clamp-1">{p.description}</div>
+                        </div>
+                      </td>
+
+                      <td className="py-3.5 px-4 font-mono font-semibold text-xs text-sky-800">
+                        <span className="bg-sky-50 border border-sky-200/60 px-2 py-0.5 rounded-md">
+                          {p.reference || '—'}
+                        </span>
+                      </td>
+
+                      <td className="py-3.5 px-4 font-medium text-gray-600">
+                        {p.category_name || 'Uncategorized'}
+                      </td>
+
+                      <td className="py-3.5 px-4 font-bold text-gray-900">
+                        KES {Number(p.price).toLocaleString()}
+                      </td>
+
+                      <td className="py-3.5 px-4">
+                        <span
+                          className={`px-2 py-0.5 rounded-full text-[11px] font-semibold ${
+                            p.stock <= 0
+                              ? 'bg-rose-50 text-rose-700'
+                              : p.stock <= 5
+                              ? 'bg-amber-50 text-amber-700'
+                              : 'bg-emerald-50 text-emerald-700'
+                          }`}
+                        >
+                          {p.stock} in stock
+                        </span>
+                      </td>
+
+                      <td className="py-3.5 px-4">
+                        <span
+                          className={`px-2 py-0.5 rounded-full text-[10px] font-bold uppercase ${
+                            p.is_active ? 'bg-sky-50 text-sky-700' : 'bg-gray-100 text-gray-500'
+                          }`}
+                        >
+                          {p.is_active ? 'Active' : 'Hidden'}
+                        </span>
+                      </td>
+
+                      <td className="py-3.5 px-4 text-right">
+                        <div className="flex items-center justify-end gap-1">
+                          <button
+                            type="button"
+                            onClick={() => handleOpenEditProduct(p)}
+                            className="p-1.5 text-gray-500 hover:text-sky-600 hover:bg-gray-100 rounded-lg transition"
+                            title="Edit Product"
+                          >
+                            <Edit2 className="w-3.5 h-3.5" />
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => handleDeleteProduct(p.id, p.title)}
+                            className="p-1.5 text-gray-500 hover:text-rose-600 hover:bg-gray-100 rounded-lg transition"
+                            title="Delete Product"
+                          >
+                            <Trash2 className="w-3.5 h-3.5" />
+                          </button>
+                        </div>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
           </div>
         </div>
       )}
@@ -1396,7 +2210,14 @@ export default function AdminDashboard() {
         <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
           <div className="bg-white rounded-2xl border border-gray-100 shadow-xs p-6 space-y-4">
             <div>
-              <h3 className="font-bold text-gray-900 text-base flex items-center gap-2">
+              <div className="flex items-center gap-2 mb-1">
+                <span className="text-[10px] font-bold uppercase tracking-wider text-sky-600 bg-sky-50 px-2 py-0.5 rounded-full border border-sky-100">
+                  Store Administration
+                </span>
+                <span className="text-gray-300">•</span>
+                <span className="text-[10px] font-semibold text-gray-500">M-Pesa Gateway</span>
+              </div>
+              <h3 className="font-black text-gray-900 text-base flex items-center gap-2">
                 <Smartphone className="w-5 h-5 text-emerald-600" />
                 <span>On-Demand M-Pesa STK Push Tool</span>
               </h3>
@@ -1490,8 +2311,15 @@ export default function AdminDashboard() {
         <div className="bg-white rounded-2xl border border-gray-100 shadow-xs overflow-hidden space-y-4">
           <div className="p-4 bg-gray-50/75 border-b border-gray-100 flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3">
             <div>
-              <h3 className="font-bold text-gray-900 text-sm flex items-center gap-2">
-                <Users className="w-4 h-4 text-sky-600" />
+              <div className="flex items-center gap-2 mb-1">
+                <span className="text-[10px] font-bold uppercase tracking-wider text-sky-600 bg-sky-50 px-2 py-0.5 rounded-full border border-sky-100">
+                  Store Administration
+                </span>
+                <span className="text-gray-300">•</span>
+                <span className="text-[10px] font-semibold text-gray-500">Customer Accounts</span>
+              </div>
+              <h3 className="font-black text-gray-900 text-base flex items-center gap-2">
+                <Users className="w-5 h-5 text-sky-600" />
                 <span>Registered Customer Accounts</span>
               </h3>
               <p className="text-xs text-gray-500 mt-0.5">
@@ -1502,7 +2330,7 @@ export default function AdminDashboard() {
               type="button"
               onClick={fetchCustomers}
               disabled={customersLoading}
-              className="px-3 py-1.5 bg-white border border-gray-200 text-gray-700 font-semibold rounded-xl text-xs hover:bg-gray-50 transition flex items-center gap-1.5 shadow-2xs"
+              className="px-3 py-1.5 bg-white border border-gray-200 text-gray-700 font-semibold rounded-xl text-xs hover:bg-gray-50 transition flex items-center gap-1.5 shadow-2xs cursor-pointer"
             >
               <RefreshCw className={`w-3.5 h-3.5 ${customersLoading ? 'animate-spin' : ''}`} />
               <span>Refresh Customers</span>
@@ -1570,12 +2398,241 @@ export default function AdminDashboard() {
       )}
 
       {/* ------------------------------------------------------------- */}
+      {/* TAB: RECORD CASH SALE (POS / IN-STORE) */}
+      {/* ------------------------------------------------------------- */}
+      {activeTab === 'cash-sales' && (
+        <div className="max-w-3xl space-y-6">
+          {/* Header */}
+          <div className="bg-white rounded-2xl border border-gray-100 shadow-xs p-6 space-y-5">
+            <div className="border-b border-gray-100 pb-4">
+              <div className="flex items-center gap-2 mb-1">
+                <span className="text-[10px] font-bold uppercase tracking-wider text-emerald-600 bg-emerald-50 px-2 py-0.5 rounded-full border border-emerald-100">
+                  POS / Walk-in
+                </span>
+              </div>
+              <h3 className="font-black text-gray-900 text-base flex items-center gap-2">
+                <DollarSign className="w-5 h-5 text-emerald-600" />
+                <span>Record Cash Sale</span>
+              </h3>
+              <p className="text-xs text-gray-500 mt-1">
+                Record an in-store or walk-in cash payment. Select products, enter the amount received, and submit.
+              </p>
+            </div>
+
+            <form onSubmit={handleSubmitCashSale} className="space-y-5">
+              {/* Customer Details */}
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                <div>
+                  <label className="block text-xs font-semibold text-gray-700 mb-1">Customer Name</label>
+                  <input
+                    type="text"
+                    value={cashSaleForm.customer_name}
+                    onChange={(e) => setCashSaleForm((prev) => ({ ...prev, customer_name: e.target.value }))}
+                    className="w-full px-3 py-2 rounded-xl border border-gray-200 text-sm focus:outline-hidden focus:ring-2 focus:ring-emerald-500"
+                    placeholder="Walk-in Customer"
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs font-semibold text-gray-700 mb-1">Phone</label>
+                  <input
+                    type="text"
+                    value={cashSaleForm.customer_phone}
+                    onChange={(e) => setCashSaleForm((prev) => ({ ...prev, customer_phone: e.target.value }))}
+                    className="w-full px-3 py-2 rounded-xl border border-gray-200 text-sm focus:outline-hidden focus:ring-2 focus:ring-emerald-500"
+                    placeholder="07XXXXXXXX"
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs font-semibold text-gray-700 mb-1">Email (optional)</label>
+                  <input
+                    type="email"
+                    value={cashSaleForm.customer_email}
+                    onChange={(e) => setCashSaleForm((prev) => ({ ...prev, customer_email: e.target.value }))}
+                    className="w-full px-3 py-2 rounded-xl border border-gray-200 text-sm focus:outline-hidden focus:ring-2 focus:ring-emerald-500"
+                    placeholder="cash@belocreations.com"
+                  />
+                </div>
+              </div>
+
+              {/* Product Selector */}
+              <div className="bg-gray-50 rounded-xl p-4 space-y-3 border border-gray-100">
+                <h4 className="text-xs font-bold text-gray-700 uppercase tracking-wider">Add Products</h4>
+                <div className="flex flex-col sm:flex-row gap-2">
+                  <select
+                    value={cashSaleForm.selected_product_id}
+                    onChange={(e) => setCashSaleForm((prev) => ({ ...prev, selected_product_id: e.target.value }))}
+                    className="flex-1 px-3 py-2 rounded-xl border border-gray-200 text-sm bg-white focus:outline-hidden focus:ring-2 focus:ring-emerald-500"
+                  >
+                    <option value="">— Select a product —</option>
+                    {products.map((p) => (
+                      <option key={p.id} value={p.id}>
+                        {p.title} {p.reference ? `(${p.reference})` : ''} — KES {Number(p.price).toLocaleString()}
+                      </option>
+                    ))}
+                  </select>
+                  <input
+                    type="number"
+                    min="1"
+                    value={cashSaleForm.quantity}
+                    onChange={(e) => setCashSaleForm((prev) => ({ ...prev, quantity: e.target.value }))}
+                    className="w-20 px-3 py-2 rounded-xl border border-gray-200 text-sm text-center focus:outline-hidden focus:ring-2 focus:ring-emerald-500"
+                    placeholder="Qty"
+                  />
+                  <button
+                    type="button"
+                    onClick={handleAddProductToCashSale}
+                    disabled={!cashSaleForm.selected_product_id}
+                    className="px-4 py-2 bg-emerald-600 text-white text-xs font-bold rounded-xl hover:bg-emerald-700 transition disabled:opacity-40 disabled:cursor-not-allowed flex items-center gap-1.5"
+                  >
+                    <Plus className="w-3.5 h-3.5" />
+                    Add
+                  </button>
+                </div>
+              </div>
+
+              {/* Cart Items */}
+              {cashSaleItems.length > 0 && (
+                <div className="space-y-2">
+                  <h4 className="text-xs font-bold text-gray-700 uppercase tracking-wider">Sale Items</h4>
+                  <div className="bg-white rounded-xl border border-gray-100 divide-y divide-gray-50">
+                    {cashSaleItems.map((item) => (
+                      <div key={item.id} className="flex items-center gap-3 p-3">
+                        {item.image && (
+                          <img src={item.image} alt={item.title} className="w-10 h-10 rounded-lg object-cover border border-gray-100" />
+                        )}
+                        <div className="flex-1 min-w-0">
+                          <div className="text-sm font-semibold text-gray-900 truncate">{item.title}</div>
+                          {item.reference && <div className="text-[10px] text-gray-400 font-mono">{item.reference}</div>}
+                          <div className="text-xs text-gray-500">KES {item.price.toLocaleString()} × {item.quantity}</div>
+                        </div>
+                        <div className="flex items-center gap-1">
+                          <button type="button" onClick={() => handleUpdateCashItemQty(item.id, -1)} className="w-6 h-6 rounded-full bg-gray-100 hover:bg-gray-200 flex items-center justify-center text-gray-600 text-xs font-bold">−</button>
+                          <span className="text-sm font-bold text-gray-900 w-6 text-center">{item.quantity}</span>
+                          <button type="button" onClick={() => handleUpdateCashItemQty(item.id, 1)} className="w-6 h-6 rounded-full bg-gray-100 hover:bg-gray-200 flex items-center justify-center text-gray-600 text-xs font-bold">+</button>
+                        </div>
+                        <div className="text-sm font-bold text-gray-900 w-24 text-right">
+                          KES {(item.price * item.quantity).toLocaleString()}
+                        </div>
+                        <button type="button" onClick={() => handleRemoveCashSaleItem(item.id)} className="text-red-400 hover:text-red-600 transition">
+                          <Trash2 className="w-4 h-4" />
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+
+                  {/* Total */}
+                  <div className="flex justify-end pt-2">
+                    <div className="bg-slate-900 text-white px-5 py-2.5 rounded-xl text-sm font-bold">
+                      Total: KES {cashSaleTotal.toLocaleString()}
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {/* Payment Details */}
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                <div>
+                  <label className="block text-xs font-semibold text-gray-700 mb-1">Amount Paid (KES)</label>
+                  <input
+                    type="number"
+                    step="0.01"
+                    value={cashSaleForm.amount_paid}
+                    onChange={(e) => setCashSaleForm((prev) => ({ ...prev, amount_paid: e.target.value }))}
+                    className="w-full px-3 py-2 rounded-xl border border-gray-200 text-sm focus:outline-hidden focus:ring-2 focus:ring-emerald-500"
+                    placeholder={cashSaleTotal > 0 ? String(cashSaleTotal) : '0'}
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs font-semibold text-gray-700 mb-1">Receipt # (optional)</label>
+                  <input
+                    type="text"
+                    value={cashSaleForm.receipt_number}
+                    onChange={(e) => setCashSaleForm((prev) => ({ ...prev, receipt_number: e.target.value }))}
+                    className="w-full px-3 py-2 rounded-xl border border-gray-200 text-sm focus:outline-hidden focus:ring-2 focus:ring-emerald-500"
+                    placeholder="Auto-generated if blank"
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs font-semibold text-gray-700 mb-1">Notes (optional)</label>
+                  <input
+                    type="text"
+                    value={cashSaleForm.notes}
+                    onChange={(e) => setCashSaleForm((prev) => ({ ...prev, notes: e.target.value }))}
+                    className="w-full px-3 py-2 rounded-xl border border-gray-200 text-sm focus:outline-hidden focus:ring-2 focus:ring-emerald-500"
+                    placeholder="e.g. Picked up at store"
+                  />
+                </div>
+              </div>
+
+              {/* Change / Balance Due indicator */}
+              {cashSaleItems.length > 0 && cashSalePaid > 0 && (
+                <div className={`rounded-xl p-3 text-sm font-semibold flex items-center gap-2 ${
+                  cashSaleChangeOrDue >= 0
+                    ? 'bg-emerald-50 text-emerald-700 border border-emerald-100'
+                    : 'bg-amber-50 text-amber-700 border border-amber-100'
+                }`}>
+                  {cashSaleChangeOrDue >= 0 ? (
+                    <><CheckCircle2 className="w-4 h-4" /> Change: KES {cashSaleChangeOrDue.toLocaleString()}</>
+                  ) : (
+                    <><AlertCircle className="w-4 h-4" /> Balance Due: KES {Math.abs(cashSaleChangeOrDue).toLocaleString()}</>
+                  )}
+                </div>
+              )}
+
+              {/* Submit */}
+              <button
+                type="submit"
+                disabled={cashSaleSubmitting || cashSaleItems.length === 0}
+                className="w-full py-3 bg-emerald-600 hover:bg-emerald-700 text-white text-sm font-bold rounded-xl transition disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
+              >
+                {cashSaleSubmitting ? (
+                  <><Loader2 className="w-4 h-4 animate-spin" /> Recording Sale...</>
+                ) : (
+                  <><DollarSign className="w-4 h-4" /> Record Cash Sale</>
+                )}
+              </button>
+            </form>
+          </div>
+
+          {/* Receipt Preview */}
+          {cashReceiptOrder && (
+            <div className="bg-white rounded-2xl border border-gray-100 shadow-xs p-6 space-y-3">
+              <h4 className="font-bold text-gray-900 text-sm flex items-center gap-2">
+                <CheckCircle2 className="w-4 h-4 text-emerald-600" />
+                Sale Recorded — Order #{cashReceiptOrder.id}
+              </h4>
+              <div className="text-xs text-gray-600 space-y-1">
+                <p><strong>Customer:</strong> {cashReceiptOrder.customer_name}</p>
+                <p><strong>Total:</strong> KES {Number(cashReceiptOrder.total_amount).toLocaleString()}</p>
+                <p><strong>Deposit Paid:</strong> KES {Number(cashReceiptOrder.deposit_amount).toLocaleString()}</p>
+                <p><strong>Status:</strong> <span className="font-semibold text-emerald-700 uppercase">{cashReceiptOrder.status}</span></p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setCashReceiptOrder(null)}
+                className="text-xs text-gray-400 hover:text-gray-600 transition"
+              >
+                Dismiss
+              </button>
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* ------------------------------------------------------------- */}
       {/* TAB 5: ACCOUNT SETTINGS */}
       {/* ------------------------------------------------------------- */}
       {activeTab === 'account' && (
         <div className="max-w-2xl bg-white rounded-2xl border border-gray-100 shadow-xs p-6 space-y-6">
           <div className="border-b border-gray-100 pb-4">
-            <h3 className="font-bold text-gray-900 text-base flex items-center gap-2">
+            <div className="flex items-center gap-2 mb-1">
+              <span className="text-[10px] font-bold uppercase tracking-wider text-sky-600 bg-sky-50 px-2 py-0.5 rounded-full border border-sky-100">
+                Store Administration
+              </span>
+              <span className="text-gray-300">•</span>
+              <span className="text-[10px] font-semibold text-gray-500">Security &amp; Credentials</span>
+            </div>
+            <h3 className="font-black text-gray-900 text-base flex items-center gap-2">
               <KeyRound className="w-5 h-5 text-sky-600" />
               <span>Change Store Owner Password</span>
             </h3>
@@ -1686,6 +2743,8 @@ export default function AdminDashboard() {
           </form>
         </div>
       )}
+        </div>
+      </div>
 
       {/* ------------------------------------------------------------- */}
       {/* MODAL 1: RECORD BALANCE PAYMENT */}

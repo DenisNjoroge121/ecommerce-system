@@ -1,5 +1,6 @@
 import { BrowserRouter as Router, Routes, Route, Link } from 'react-router-dom';
-import { ShoppingBag, Store, Info, Shield, User, LogIn, LogOut } from 'lucide-react';
+import { ShoppingBag, Info, Shield, User, LogIn, LogOut } from 'lucide-react';
+import beloLogo from './assets/Belo.png';
 import Home from './pages/Home';
 import ProductDetail from './pages/ProductDetail';
 import Checkout from './pages/Checkout';
@@ -22,8 +23,8 @@ export default function App() {
         {/* Navigation Bar */}
         <header className="bg-slate-900 text-white sticky top-0 z-50 shadow-md">
           <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 h-16 flex items-center justify-between">
-            <Link to="/" className="flex items-center gap-2 font-bold text-xl tracking-tight hover:text-gray-300 transition">
-              <Store className="w-6 h-6 text-sky-400" />
+            <Link to="/" className="flex items-center gap-2.5 font-bold text-xl tracking-tight hover:text-gray-300 transition">
+              <img src={beloLogo} alt="Belo.Creations Logo" className="w-9 h-9 object-contain rounded-full shadow-xs bg-white/10 p-0.5" />
               <span>Belo.Creations</span>
             </Link>
 
