@@ -13,7 +13,7 @@ import {
 } from 'lucide-react';
 
 export default function AdminDashboard() {
-  const { user, isAdmin, isAuthenticated, login, logout } = useAuthStore();
+  const { user, isAdmin, isAuthenticated, login, logout, updateUser } = useAuthStore();
 
   const [activeTab, setActiveTab] = useState('dashboard'); // 'dashboard' | 'orders' | 'analytics' | 'products' | 'customers' | 'stk' | 'account'
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
@@ -169,6 +169,16 @@ export default function AdminDashboard() {
   useEffect(() => {
     if (isAuthenticated && isAdmin) {
       let isMounted = true;
+
+      // Always refresh the logged-in user's profile so email/username stay current
+      API.get('auth/me/').then((res) => {
+        if (isMounted) updateUser(res.data);
+      }).catch((err) => {
+        if (isMounted) {
+          console.error('Failed to refresh admin profile:', err);
+        }
+      });
+
       Promise.all([
         API.get('products/'),
         API.get('categories/'),
@@ -205,7 +215,7 @@ export default function AdminDashboard() {
         clearInterval(autoSyncInterval);
       };
     }
-  }, [isAuthenticated, isAdmin]);
+  }, [isAuthenticated, isAdmin, updateUser]);
 
   // When switching to analytics tab or changing period
   const handlePeriodChange = (newPeriod) => {
@@ -2642,10 +2652,15 @@ export default function AdminDashboard() {
           </div>
 
           <div className="bg-gray-50 rounded-xl p-4 border border-gray-100 flex items-center justify-between text-xs">
-            <div>
-              <span className="text-gray-400 block text-[11px] uppercase font-semibold">Active Admin Account</span>
-              <span className="font-bold text-gray-900 text-sm">{user?.username}</span>
-              {user?.email && <span className="text-gray-500 ml-2">({user?.email})</span>}
+            <div className="flex items-center gap-3">
+              <div className="w-10 h-10 rounded-full bg-sky-100 flex items-center justify-center">
+                <User className="w-5 h-5 text-sky-600" />
+              </div>
+              <div>
+                <span className="text-gray-400 block text-[11px] uppercase font-semibold tracking-wider">Active Admin Account</span>
+                <span className="font-bold text-gray-900 text-sm block">{user?.username}</span>
+                <span className="text-gray-500 text-[11px]">{user?.email || '—'}</span>
+              </div>
             </div>
             <span className="px-2.5 py-1 bg-emerald-50 text-emerald-700 font-bold rounded-lg border border-emerald-100 text-[11px]">
               Verified Store Owner
