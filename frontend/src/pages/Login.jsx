@@ -143,7 +143,7 @@ export default function Login() {
         </form>
 
         {/* Quick Demo fill */}
-        <div className="pt-2 text-center">
+        {/* <div className="pt-2 text-center">
           <button
             type="button"
             onClick={handleQuickAdminLogin}
@@ -151,7 +151,7 @@ export default function Login() {
           >
             Fill Demo Admin Credentials (admin / admin123)
           </button>
-        </div>
+        </div> */}
 
         <div className="pt-4 border-t border-gray-100 text-center text-xs text-gray-500">
           Don&apos;t have an account yet?{' '}
