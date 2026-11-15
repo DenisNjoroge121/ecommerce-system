@@ -58,9 +58,9 @@ export default function Login() {
     }
   };
 
-  const handleQuickAdminLogin = () => {
-    setFormData({ username: 'admin', password: 'admin123' });
-  };
+  // const handleQuickAdminLogin = () => {
+  //   setFormData({ username: 'admin', password: 'admin123' });
+  // };
 
   return (
     <div className="max-w-md mx-auto py-12 px-4">

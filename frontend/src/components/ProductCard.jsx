@@ -117,6 +117,7 @@ export default function ProductCard({ product }) {
               {product.description}
             </p>
           )}
+          {product.color && <p className="text-xs text-gray-500 mt-2">Color: <span className="font-medium text-gray-700">{product.color}</span></p>}
         </div>
 
         {/* Price and Stock Count */}

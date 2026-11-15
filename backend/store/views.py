@@ -164,19 +164,36 @@ class ProductViewSet(viewsets.ModelViewSet):
         search = self.request.query_params.get('search')
         if search:
             queryset = queryset.filter(
-                Q(title__icontains=search) | Q(description__icontains=search) | Q(reference__icontains=search)
+                Q(title__icontains=search) | Q(description__icontains=search) |
+                Q(reference__icontains=search) | Q(color__icontains=search)
             )
 
         category_id = self.request.query_params.get('category')
         if category_id:
             queryset = queryset.filter(category_id=category_id)
 
+        parent_category_id = self.request.query_params.get('parent_category')
+        if parent_category_id:
+            queryset = queryset.filter(category__parent_id=parent_category_id)
+
+        color = self.request.query_params.get('color')
+        if color:
+            queryset = queryset.filter(color__iexact=color.strip())
+
+        min_price = self.request.query_params.get('min_price')
+        if min_price:
+            queryset = queryset.filter(price__gte=min_price)
+
+        max_price = self.request.query_params.get('max_price')
+        if max_price:
+            queryset = queryset.filter(price__lte=max_price)
+
         in_stock = self.request.query_params.get('in_stock')
         if in_stock == 'true':
             queryset = queryset.filter(stock__gt=0)
 
         ordering = self.request.query_params.get('ordering')
-        if ordering in ['price', '-price', 'created_at', '-created_at', 'title', 'reference']:
+        if ordering in ['price', '-price', 'created_at', '-created_at', 'title', 'reference', 'color']:
             queryset = queryset.order_by(ordering)
 
         return queryset

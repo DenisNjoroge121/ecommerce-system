@@ -134,6 +134,8 @@ export default function ProductDetail({ sellerPhone = "254700000000" }) {
               {product.title}
             </h1>
 
+            {product.color && <p className="text-sm text-gray-600">Color: <span className="font-semibold text-gray-900">{product.color}</span></p>}
+
             <div className="text-3xl font-black text-sky-600">
               <span className="text-sm font-semibold text-gray-400 mr-1.5">KES</span>
               {Number(product.price).toLocaleString()}

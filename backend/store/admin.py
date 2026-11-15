@@ -16,7 +16,8 @@ admin.site.index_title  = "Store Management"
 # ─────────────────────────────────────────────────────────────
 @admin.register(Category)
 class CategoryAdmin(admin.ModelAdmin):
-    list_display  = ('name', 'slug', 'get_product_count')
+    list_display  = ('name', 'parent', 'slug', 'get_product_count')
+    list_filter = ('parent',)
     search_fields = ('name', 'slug')
     prepopulated_fields = {'slug': ('name',)}
 
@@ -32,11 +33,11 @@ class CategoryAdmin(admin.ModelAdmin):
 class ProductAdmin(admin.ModelAdmin):
     list_display   = (
         'image_preview', 'title', 'reference', 'category',
-        'price', 'stock', 'is_active', 'created_at'
+        'color', 'price', 'stock', 'is_active', 'created_at'
     )
     list_display_links = ('image_preview', 'title')
-    list_filter    = ('category', 'is_active', 'created_at')
-    search_fields  = ('title', 'reference', 'description')
+    list_filter    = ('category__parent', 'category', 'color', 'is_active', 'created_at')
+    search_fields  = ('title', 'reference', 'description', 'color')
     list_editable  = ('price', 'stock', 'is_active')
     prepopulated_fields = {'slug': ('title',)}
     ordering       = ('-created_at',)
@@ -44,7 +45,7 @@ class ProductAdmin(admin.ModelAdmin):
 
     fieldsets = (
         ('Product Info', {
-            'fields': ('title', 'reference', 'slug', 'category', 'description')
+            'fields': ('title', 'reference', 'slug', 'category', 'color', 'description')
         }),
         ('Pricing & Stock', {
             'fields': ('price', 'stock', 'is_active')

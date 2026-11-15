@@ -47,21 +47,28 @@ class RegisterSerializer(serializers.ModelSerializer):
 
 class CategorySerializer(serializers.ModelSerializer):
     products_count = serializers.IntegerField(source='products.count', read_only=True)
+    parent_name = serializers.CharField(source='parent.name', read_only=True, allow_null=True)
+    is_parent = serializers.SerializerMethodField()
 
     class Meta:
         model = Category
-        fields = ['id', 'name', 'slug', 'products_count']
+        fields = ['id', 'name', 'slug', 'parent', 'parent_name', 'is_parent', 'products_count']
         extra_kwargs = {'slug': {'required': False}}
+
+    def get_is_parent(self, obj):
+        return obj.parent_id is None
 
 class ProductSerializer(serializers.ModelSerializer):
     category_name = serializers.CharField(source='category.name', read_only=True)
+    parent_category_name = serializers.CharField(source='category.parent.name', read_only=True, allow_null=True)
+    parent_category = serializers.IntegerField(source='category.parent_id', read_only=True, allow_null=True)
     image_url = serializers.CharField(write_only=True, required=False, allow_blank=True)
     image = serializers.ImageField(required=False, allow_null=True)
 
     class Meta:
         model = Product
         fields = [
-            'id', 'category', 'category_name', 'title', 'reference', 'slug',
+            'id', 'category', 'category_name', 'parent_category', 'parent_category_name', 'title', 'reference', 'slug', 'color',
             'description', 'price', 'stock', 'image', 'image_url', 'is_active', 'created_at'
         ]
         extra_kwargs = {

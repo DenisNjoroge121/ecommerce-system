@@ -5,24 +5,31 @@ import { Search, SlidersHorizontal, Sparkles, Filter, X } from 'lucide-react';
 
 export default function Home() {
   const [products, setProducts] = useState([]);
+  const [categories, setCategories] = useState([]);
   const [loading, setLoading] = useState(true);
 
   // Filters state
   const [searchQuery, setSearchQuery] = useState('');
   const [sortBy, setSortBy] = useState('featured');
   const [onlyInStock, setOnlyInStock] = useState(false);
+  const [selectedCategory, setSelectedCategory] = useState('');
+  const [selectedSubcategory, setSelectedSubcategory] = useState('');
+  const [selectedColor, setSelectedColor] = useState('');
+  const [minPrice, setMinPrice] = useState('');
+  const [maxPrice, setMaxPrice] = useState('');
 
   useEffect(() => {
-    API.get('products/')
-      .then((productsRes) => {
+    Promise.all([API.get('products/'), API.get('categories/')])
+      .then(([productsRes, categoriesRes]) => {
         setProducts(productsRes.data);
-        setLoading(false);
+        setCategories(categoriesRes.data);
       })
-      .catch((err) => {
-        console.error('Failed to load store data:', err);
-        setLoading(false);
-      });
+      .catch((err) => console.error('Failed to load store data:', err))
+      .finally(() => setLoading(false));
   }, []);
+
+  const subcategories = categories.filter((category) => String(category.parent) === selectedCategory);
+  const colors = [...new Set(products.map((product) => product.color).filter(Boolean))].sort();
 
   // Filtered and sorted products
   const filteredProducts = useMemo(() => {
@@ -32,11 +39,17 @@ export default function Home() {
           searchQuery.trim() === '' ||
           p.title?.toLowerCase().includes(searchQuery.toLowerCase()) ||
           p.description?.toLowerCase().includes(searchQuery.toLowerCase()) ||
-          p.reference?.toLowerCase().includes(searchQuery.toLowerCase());
+          p.reference?.toLowerCase().includes(searchQuery.toLowerCase()) ||
+          p.color?.toLowerCase().includes(searchQuery.toLowerCase());
 
         const matchesStock = !onlyInStock || (p.stock && p.stock > 0);
+        const matchesCategory = !selectedCategory || String(p.parent_category) === selectedCategory || (!p.parent_category && String(p.category) === selectedCategory);
+        const matchesSubcategory = !selectedSubcategory || String(p.category) === selectedSubcategory;
+        const matchesColor = !selectedColor || p.color?.toLowerCase() === selectedColor.toLowerCase();
+        const matchesMinPrice = !minPrice || Number(p.price) >= Number(minPrice);
+        const matchesMaxPrice = !maxPrice || Number(p.price) <= Number(maxPrice);
 
-        return matchesSearch && matchesStock;
+        return matchesSearch && matchesStock && matchesCategory && matchesSubcategory && matchesColor && matchesMinPrice && matchesMaxPrice;
       })
       .sort((a, b) => {
         if (sortBy === 'price-asc') return Number(a.price) - Number(b.price);
@@ -44,7 +57,7 @@ export default function Home() {
         if (sortBy === 'newest') return new Date(b.created_at) - new Date(a.created_at);
         return 0; // featured default
       });
-  }, [products, searchQuery, sortBy, onlyInStock]);
+  }, [products, searchQuery, sortBy, onlyInStock, selectedCategory, selectedSubcategory, selectedColor, minPrice, maxPrice]);
 
   return (
     <div className="space-y-8 pb-12">
@@ -115,6 +128,22 @@ export default function Home() {
             </div>
           </div>
         </div>
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-3">
+          <select value={selectedCategory} onChange={(e) => { setSelectedCategory(e.target.value); setSelectedSubcategory(''); }} className="w-full px-3 py-2 rounded-xl border border-gray-200 text-sm">
+            <option value="">All categories</option>
+            {categories.filter((category) => !category.parent).map((category) => <option key={category.id} value={category.id}>{category.name}</option>)}
+          </select>
+          <select value={selectedSubcategory} onChange={(e) => setSelectedSubcategory(e.target.value)} disabled={!selectedCategory} className="w-full px-3 py-2 rounded-xl border border-gray-200 text-sm disabled:bg-gray-50">
+            <option value="">All subcategories</option>
+            {subcategories.map((category) => <option key={category.id} value={category.id}>{category.name}</option>)}
+          </select>
+          <select value={selectedColor} onChange={(e) => setSelectedColor(e.target.value)} className="w-full px-3 py-2 rounded-xl border border-gray-200 text-sm">
+            <option value="">All colors</option>
+            {colors.map((color) => <option key={color} value={color}>{color}</option>)}
+          </select>
+          <input type="number" min="0" value={minPrice} onChange={(e) => setMinPrice(e.target.value)} placeholder="Min price (KES)" className="w-full px-3 py-2 rounded-xl border border-gray-200 text-sm" />
+          <input type="number" min="0" value={maxPrice} onChange={(e) => setMaxPrice(e.target.value)} placeholder="Max price (KES)" className="w-full px-3 py-2 rounded-xl border border-gray-200 text-sm" />
+        </div>
       </div>
 
       {/* Catalog Header */}
@@ -142,6 +171,11 @@ export default function Home() {
             onClick={() => {
               setSearchQuery('');
               setOnlyInStock(false);
+              setSelectedCategory('');
+              setSelectedSubcategory('');
+              setSelectedColor('');
+              setMinPrice('');
+              setMaxPrice('');
             }}
             className="px-4 py-2 bg-slate-900 text-white text-xs font-semibold rounded-xl hover:bg-slate-800 transition"
           >

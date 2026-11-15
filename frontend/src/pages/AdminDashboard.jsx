@@ -61,6 +61,7 @@ export default function AdminDashboard() {
     title: '',
     reference: '',
     category: '',
+    color: '',
     price: '',
     stock: '',
     description: '',
@@ -303,7 +304,8 @@ export default function AdminDashboard() {
     setProductForm({
       title: '',
       reference: '',
-      category: categories[0]?.id || '',
+      category: categories.find((category) => category.parent)?.id || '',
+      color: '',
       price: '',
       stock: '10',
       description: '',
@@ -320,7 +322,8 @@ export default function AdminDashboard() {
     setProductForm({
       title: prod.title || '',
       reference: prod.reference || '',
-      category: prod.category || categories[0]?.id || '',
+      category: prod.category || categories.find((category) => category.parent)?.id || '',
+      color: prod.color || '',
       price: String(prod.price || ''),
       stock: String(prod.stock || '0'),
       description: prod.description || '',
@@ -353,7 +356,8 @@ export default function AdminDashboard() {
       const formData = new FormData();
       formData.append('title', productForm.title);
       formData.append('reference', productForm.reference || '');
-      formData.append('category', productForm.category || categories[0]?.id || '');
+      formData.append('category', productForm.category || categories.find((category) => category.parent)?.id || '');
+      formData.append('color', productForm.color || '');
       formData.append('price', productForm.price);
       formData.append('stock', productForm.stock);
       formData.append('description', productForm.description);
@@ -3018,12 +3022,16 @@ export default function AdminDashboard() {
                     onChange={(e) => setProductForm({ ...productForm, category: e.target.value })}
                     className="w-full px-3 py-2 rounded-xl border border-gray-200 focus:ring-2 focus:ring-sky-500 focus:outline-hidden"
                   >
-                    {categories.map((c) => (
+                    <option value="">Select a subcategory</option>
+                    {categories.filter((c) => c.parent || String(c.id) === String(productForm.category)).map((c) => (
                       <option key={c.id} value={c.id}>
-                        {c.name}
+                        {c.parent_name ? `${c.parent_name} / ${c.name}` : c.name}
                       </option>
                     ))}
                   </select>
+                  {!categories.some((category) => category.parent) && (
+                    <p className="text-[11px] text-amber-700 mt-1">Add subcategories under Bags, Hats, Clothing, or Accessories in Django admin first.</p>
+                  )}
                 </div>
 
                 <div>
@@ -3041,6 +3049,16 @@ export default function AdminDashboard() {
               </div>
 
               <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block font-semibold text-gray-700 uppercase mb-1">Color</label>
+                  <input
+                    type="text"
+                    value={productForm.color}
+                    onChange={(e) => setProductForm({ ...productForm, color: e.target.value })}
+                    placeholder="e.g. Teal, Black, Multicolor"
+                    className="w-full px-3 py-2 rounded-xl border border-gray-200 focus:ring-2 focus:ring-sky-500 focus:outline-hidden"
+                  />
+                </div>
                 <div>
                   <label className="block font-semibold text-gray-700 uppercase mb-1">Stock Quantity</label>
                   <input
