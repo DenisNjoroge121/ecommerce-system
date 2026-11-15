@@ -146,6 +146,28 @@ STORAGES = {
     },
 }
 
+if os.getenv('SUPABASE_STORAGE_ENABLED', '').lower() == 'true':
+    bucket_name = os.environ['SUPABASE_STORAGE_BUCKET']
+    project_ref = os.environ['SUPABASE_PROJECT_REF']
+
+    STORAGES['default'] = {
+        'BACKEND': 'storages.backends.s3.S3Storage',
+        'OPTIONS': {
+            'bucket_name': bucket_name,
+            'endpoint_url': os.environ['SUPABASE_S3_ENDPOINT'],
+            'region_name': os.environ['SUPABASE_S3_REGION'],
+            'access_key': os.environ['SUPABASE_S3_ACCESS_KEY_ID'],
+            'secret_key': os.environ['SUPABASE_S3_SECRET_ACCESS_KEY'],
+            'addressing_style': 'path',
+            'querystring_auth': False,
+            'file_overwrite': False,
+            'custom_domain': (
+                f'{project_ref}.supabase.co/storage/v1/object/public/{bucket_name}'
+            ),
+            'url_protocol': 'https:',
+        },
+    }
+
 
 # Email
 # https://docs.djangoproject.com/en/6.1/topics/email/#topic-email-configuration
