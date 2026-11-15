@@ -33,12 +33,12 @@ class CategoryAdmin(admin.ModelAdmin):
 class ProductAdmin(admin.ModelAdmin):
     list_display   = (
         'image_preview', 'title', 'reference', 'category',
-        'color', 'price', 'stock', 'is_active', 'created_at'
+        'color', 'price', 'is_active', 'created_at'
     )
     list_display_links = ('image_preview', 'title')
     list_filter    = ('category__parent', 'category', 'color', 'is_active', 'created_at')
     search_fields  = ('title', 'reference', 'description', 'color')
-    list_editable  = ('price', 'stock', 'is_active')
+    list_editable  = ('price', 'is_active')
     prepopulated_fields = {'slug': ('title',)}
     ordering       = ('-created_at',)
     readonly_fields = ('reference', 'slug', 'created_at', 'image_preview_large')
@@ -47,8 +47,8 @@ class ProductAdmin(admin.ModelAdmin):
         ('Product Info', {
             'fields': ('title', 'reference', 'slug', 'category', 'color', 'description')
         }),
-        ('Pricing & Stock', {
-            'fields': ('price', 'stock', 'is_active')
+        ('Pricing & Visibility', {
+            'fields': ('price', 'is_active')
         }),
         ('Product Image', {
             'fields': ('image', 'image_preview_large'),
@@ -83,7 +83,7 @@ class ProductAdmin(admin.ModelAdmin):
     image_preview_large.short_description = 'Current Image'
 
     # Bulk actions
-    actions = ['mark_active', 'mark_inactive', 'restock_zero']
+    actions = ['mark_active', 'mark_inactive']
 
     def mark_active(self, request, queryset):
         updated = queryset.update(is_active=True)
@@ -94,12 +94,6 @@ class ProductAdmin(admin.ModelAdmin):
         updated = queryset.update(is_active=False)
         self.message_user(request, f"{updated} product(s) set to Inactive.")
     mark_inactive.short_description = "🚫 Mark selected as Inactive"
-
-    def restock_zero(self, request, queryset):
-        updated = queryset.filter(stock=0).update(is_active=False)
-        self.message_user(request, f"{updated} out-of-stock product(s) hidden.")
-    restock_zero.short_description = "🔴 Hide out-of-stock products"
-
 
 # ─────────────────────────────────────────────────────────────
 #  ORDER

@@ -50,8 +50,6 @@ export default function ProductCard({ product }) {
       : `${backendBase}/${product.image}`;
   };
 
-  const isOutOfStock = product.stock !== undefined && product.stock <= 0;
-
   return (
     <div className="group bg-white rounded-2xl border border-gray-100 shadow-sm hover:shadow-md transition-all duration-300 flex flex-col overflow-hidden">
       {/* Product Image & Badges */}
@@ -64,23 +62,6 @@ export default function ProductCard({ product }) {
             className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300"
           />
         </Link>
-
-        {/* Stock Badge */}
-        <div className="absolute top-3 left-3">
-          {isOutOfStock ? (
-            <span className="bg-rose-500/90 backdrop-blur-xs text-white text-xs font-semibold px-2.5 py-1 rounded-full shadow-xs">
-              Out of Stock
-            </span>
-          ) : product.stock && product.stock <= 5 ? (
-            <span className="bg-amber-500/90 backdrop-blur-xs text-white text-xs font-semibold px-2.5 py-1 rounded-full shadow-xs">
-              Only {product.stock} left
-            </span>
-          ) : (
-            <span className="bg-emerald-600/90 backdrop-blur-xs text-white text-xs font-semibold px-2.5 py-1 rounded-full shadow-xs">
-              In Stock
-            </span>
-          )}
-        </div>
 
         {/* Quick View Floating Action */}
         <Link
@@ -120,18 +101,13 @@ export default function ProductCard({ product }) {
           {product.color && <p className="text-xs text-gray-500 mt-2">Color: <span className="font-medium text-gray-700">{product.color}</span></p>}
         </div>
 
-        {/* Price and Stock Count */}
+        {/* Price */}
         <div className="pt-2 border-t border-gray-50">
           <div className="flex items-baseline justify-between">
             <div className="text-lg font-black text-slate-900">
               <span className="text-xs font-semibold text-gray-500 mr-1">KES</span>
               {Number(product.price).toLocaleString()}
             </div>
-            {product.stock > 0 && (
-              <span className="text-[11px] text-gray-400 font-medium">
-                {product.stock} in stock
-              </span>
-            )}
           </div>
         </div>
 
@@ -140,11 +116,8 @@ export default function ProductCard({ product }) {
           <button
             type="button"
             onClick={handleAddToCart}
-            disabled={isOutOfStock}
             className={`w-full flex items-center justify-center gap-1.5 py-2.5 px-3 rounded-xl text-xs font-semibold transition shadow-xs ${
-              isOutOfStock
-                ? 'bg-gray-100 text-gray-400 cursor-not-allowed'
-                : isAdded
+              isAdded
                 ? 'bg-emerald-600 text-white'
                 : 'bg-slate-900 hover:bg-slate-800 text-white'
             }`}
@@ -157,7 +130,7 @@ export default function ProductCard({ product }) {
             ) : (
               <>
                 <ShoppingCart className="w-3.5 h-3.5" />
-                <span>{isOutOfStock ? 'Sold Out' : 'Add to Cart'}</span>
+                <span>Add to Cart</span>
               </>
             )}
           </button>

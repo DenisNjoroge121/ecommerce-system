@@ -63,7 +63,6 @@ export default function AdminDashboard() {
     category: '',
     color: '',
     price: '',
-    stock: '',
     description: '',
     image: '',
     is_active: true,
@@ -307,7 +306,6 @@ export default function AdminDashboard() {
       category: categories.find((category) => category.parent)?.id || '',
       color: '',
       price: '',
-      stock: '10',
       description: '',
       image: '',
       is_active: true,
@@ -325,7 +323,6 @@ export default function AdminDashboard() {
       category: prod.category || categories.find((category) => category.parent)?.id || '',
       color: prod.color || '',
       price: String(prod.price || ''),
-      stock: String(prod.stock || '0'),
       description: prod.description || '',
       image: prod.image || '',
       is_active: Boolean(prod.is_active),
@@ -359,7 +356,6 @@ export default function AdminDashboard() {
       formData.append('category', productForm.category || categories.find((category) => category.parent)?.id || '');
       formData.append('color', productForm.color || '');
       formData.append('price', productForm.price);
-      formData.append('stock', productForm.stock);
       formData.append('description', productForm.description);
       formData.append('is_active', productForm.is_active);
 
@@ -1160,13 +1156,9 @@ export default function AdminDashboard() {
                         <ChevronRight className="w-3.5 h-3.5 text-gray-400 group-hover:text-sky-600 group-hover:translate-x-0.5 transition" />
                       </h3>
                       <p className="text-[11px] text-gray-500 mt-1 leading-relaxed">
-                        Manage luxury handbag stock, bag reference codes, catalog pricing, visibility toggles, and photo upload assets.
+                        Manage crochet product details, references, pricing, visibility, and photos.
                       </p>
                     </div>
-                  </div>
-                  <div className="pt-3 mt-3 border-t border-sky-100/60 flex items-center justify-between text-xs">
-                    <span className="text-gray-500 font-medium">Stock Status:</span>
-                    <span className="font-bold text-sky-700">{products.filter(p => p.stock > 0).length} In Stock</span>
                   </div>
                 </div>
 
@@ -1420,7 +1412,7 @@ export default function AdminDashboard() {
                         <Package className="w-4 h-4 text-sky-600" />
                         <span>Bag Inventory Highlights</span>
                       </h3>
-                      <p className="text-[11px] text-gray-500">Fast reference &amp; stock tracker</p>
+                      <p className="text-[11px] text-gray-500">Quick product and price overview</p>
                     </div>
                     <button
                       type="button"
@@ -1453,11 +1445,6 @@ export default function AdminDashboard() {
                             </div>
                           </div>
                         </div>
-                        <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full shrink-0 ${
-                          p.stock <= 5 ? 'bg-amber-50 text-amber-700' : 'bg-emerald-50 text-emerald-700'
-                        }`}>
-                          {p.stock} left
-                        </span>
                       </div>
                     ))}
                   </div>
@@ -2093,14 +2080,14 @@ export default function AdminDashboard() {
                   Store Administration
                 </span>
                 <span className="text-gray-300">•</span>
-                <span className="text-[10px] font-semibold text-gray-500">Catalog &amp; Stock</span>
+                <span className="text-[10px] font-semibold text-gray-500">Product Catalog</span>
               </div>
               <h2 className="text-xl font-black text-gray-900 tracking-tight flex items-center gap-2">
                 <Package className="w-5 h-5 text-sky-600" />
                 <span>Product Inventory</span>
               </h2>
               <p className="text-xs text-gray-500 mt-0.5">
-                Manage handbag listings, stock levels, bag reference codes, catalog pricing, and store visibility.
+                Manage crochet product listings, references, pricing, and store visibility.
               </p>
             </div>
 
@@ -2128,7 +2115,6 @@ export default function AdminDashboard() {
                     <th className="py-3 px-4">Bag Reference</th>
                     <th className="py-3 px-4">Category</th>
                     <th className="py-3 px-4">Price (KES)</th>
-                    <th className="py-3 px-4">Stock</th>
                     <th className="py-3 px-4">Status</th>
                     <th className="py-3 px-4 text-right">Actions</th>
                   </tr>
@@ -2162,20 +2148,6 @@ export default function AdminDashboard() {
 
                       <td className="py-3.5 px-4 font-bold text-gray-900">
                         KES {Number(p.price).toLocaleString()}
-                      </td>
-
-                      <td className="py-3.5 px-4">
-                        <span
-                          className={`px-2 py-0.5 rounded-full text-[11px] font-semibold ${
-                            p.stock <= 0
-                              ? 'bg-rose-50 text-rose-700'
-                              : p.stock <= 5
-                              ? 'bg-amber-50 text-amber-700'
-                              : 'bg-emerald-50 text-emerald-700'
-                          }`}
-                        >
-                          {p.stock} in stock
-                        </span>
                       </td>
 
                       <td className="py-3.5 px-4">
@@ -3059,18 +3031,6 @@ export default function AdminDashboard() {
                     className="w-full px-3 py-2 rounded-xl border border-gray-200 focus:ring-2 focus:ring-sky-500 focus:outline-hidden"
                   />
                 </div>
-                <div>
-                  <label className="block font-semibold text-gray-700 uppercase mb-1">Stock Quantity</label>
-                  <input
-                    type="number"
-                    required
-                    value={productForm.stock}
-                    onChange={(e) => setProductForm({ ...productForm, stock: e.target.value })}
-                    placeholder="15"
-                    className="w-full px-3 py-2 rounded-xl border border-gray-200 focus:ring-2 focus:ring-sky-500 focus:outline-hidden"
-                  />
-                </div>
-
                 <div className="flex items-center pt-5">
                   <label className="flex items-center gap-2 cursor-pointer font-semibold text-gray-700">
                     <input

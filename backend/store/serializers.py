@@ -69,7 +69,7 @@ class ProductSerializer(serializers.ModelSerializer):
         model = Product
         fields = [
             'id', 'category', 'category_name', 'parent_category', 'parent_category_name', 'title', 'reference', 'slug', 'color',
-            'description', 'price', 'stock', 'image', 'image_url', 'is_active', 'created_at'
+            'description', 'price', 'image', 'image_url', 'is_active', 'created_at'
         ]
         extra_kwargs = {
             'slug': {'required': False},

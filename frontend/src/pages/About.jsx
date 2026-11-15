@@ -61,7 +61,7 @@ export default function About() {
             <ShieldCheck className="w-5 h-5" />
           </div>
           <h3 className="font-semibold text-gray-900">Simple online shopping</h3>
-          <p className="text-sm text-gray-500">View available products, check prices and stock, then place your order online using the checkout options provided.</p>
+          <p className="text-sm text-gray-500">View available products and prices, then place your order online using the checkout options provided.</p>
         </div>
       </div>
 

@@ -11,7 +11,6 @@ export default function Home() {
   // Filters state
   const [searchQuery, setSearchQuery] = useState('');
   const [sortBy, setSortBy] = useState('featured');
-  const [onlyInStock, setOnlyInStock] = useState(false);
   const [selectedCategory, setSelectedCategory] = useState('');
   const [selectedSubcategory, setSelectedSubcategory] = useState('');
   const [selectedColor, setSelectedColor] = useState('');
@@ -42,14 +41,13 @@ export default function Home() {
           p.reference?.toLowerCase().includes(searchQuery.toLowerCase()) ||
           p.color?.toLowerCase().includes(searchQuery.toLowerCase());
 
-        const matchesStock = !onlyInStock || (p.stock && p.stock > 0);
         const matchesCategory = !selectedCategory || String(p.parent_category) === selectedCategory || (!p.parent_category && String(p.category) === selectedCategory);
         const matchesSubcategory = !selectedSubcategory || String(p.category) === selectedSubcategory;
         const matchesColor = !selectedColor || p.color?.toLowerCase() === selectedColor.toLowerCase();
         const matchesMinPrice = !minPrice || Number(p.price) >= Number(minPrice);
         const matchesMaxPrice = !maxPrice || Number(p.price) <= Number(maxPrice);
 
-        return matchesSearch && matchesStock && matchesCategory && matchesSubcategory && matchesColor && matchesMinPrice && matchesMaxPrice;
+        return matchesSearch && matchesCategory && matchesSubcategory && matchesColor && matchesMinPrice && matchesMaxPrice;
       })
       .sort((a, b) => {
         if (sortBy === 'price-asc') return Number(a.price) - Number(b.price);
@@ -57,7 +55,7 @@ export default function Home() {
         if (sortBy === 'newest') return new Date(b.created_at) - new Date(a.created_at);
         return 0; // featured default
       });
-  }, [products, searchQuery, sortBy, onlyInStock, selectedCategory, selectedSubcategory, selectedColor, minPrice, maxPrice]);
+  }, [products, searchQuery, sortBy, selectedCategory, selectedSubcategory, selectedColor, minPrice, maxPrice]);
 
   return (
     <div className="space-y-8 pb-12">
@@ -101,18 +99,8 @@ export default function Home() {
             )}
           </div>
 
-          {/* Sorting & Stock Toggle */}
+          {/* Sorting */}
           <div className="flex items-center gap-3 w-full md:w-auto justify-end">
-            <label className="flex items-center gap-2 text-xs font-medium text-gray-600 cursor-pointer select-none">
-              <input
-                type="checkbox"
-                checked={onlyInStock}
-                onChange={(e) => setOnlyInStock(e.target.checked)}
-                className="rounded border-gray-300 text-sky-600 focus:ring-sky-500"
-              />
-              <span>In Stock Only</span>
-            </label>
-
             <div className="flex items-center gap-1.5 border border-gray-200 rounded-xl px-3 py-2 bg-white text-xs font-medium text-gray-700">
               <SlidersHorizontal className="w-3.5 h-3.5 text-gray-400" />
               <select
@@ -170,7 +158,6 @@ export default function Home() {
             type="button"
             onClick={() => {
               setSearchQuery('');
-              setOnlyInStock(false);
               setSelectedCategory('');
               setSelectedSubcategory('');
               setSelectedColor('');
