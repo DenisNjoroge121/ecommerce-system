@@ -929,7 +929,7 @@ export default function Checkout() {
 
           <div className="space-y-4">
             <div className="bg-white rounded-2xl border border-gray-100 shadow-xs p-6 space-y-4">
-              <h3 className="font-bold text-gray-900 text-base">Bag Summary</h3>
+              <h3 className="font-bold text-gray-900 text-base">Order Summary</h3>
 
               <div className="divide-y divide-gray-100 max-h-60 overflow-y-auto pr-1">
                 {cart.map((item) => (
