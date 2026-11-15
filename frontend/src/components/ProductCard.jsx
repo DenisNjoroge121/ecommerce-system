@@ -36,31 +36,23 @@ export default function ProductCard({ product }) {
     setTimeout(() => setIsAdded(false), 1500);
   };
 
-  // Resolve image URL
-  const getImageSrc = () => {
-    if (imageError || !product.image) {
-      return 'https://images.unsplash.com/photo-1523275335684-37898b6baf30?w=600&auto=format&fit=crop&q=60';
-    }
-    if (product.image.startsWith('http://') || product.image.startsWith('https://')) {
-      return product.image;
-    }
-    const backendBase = 'http://127.0.0.1:8000';
-    return product.image.startsWith('/')
-      ? `${backendBase}${product.image}`
-      : `${backendBase}/${product.image}`;
-  };
-
   return (
     <div className="group bg-white rounded-2xl border border-gray-100 shadow-sm hover:shadow-md transition-all duration-300 flex flex-col overflow-hidden">
       {/* Product Image & Badges */}
       <div className="relative aspect-square overflow-hidden bg-gray-50">
         <Link to={`/product/${product.id}`} className="block w-full h-full">
-          <img
-            src={getImageSrc()}
-            alt={product.title || 'Product Image'}
-            onError={() => setImageError(true)}
-            className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300"
-          />
+          {product.image && !imageError ? (
+            <img
+              src={product.image}
+              alt={product.title || 'Product Image'}
+              onError={() => setImageError(true)}
+              className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300"
+            />
+          ) : (
+            <div className="w-full h-full flex items-center justify-center text-sm text-gray-400" role="img" aria-label="Product image unavailable">
+              Image unavailable
+            </div>
+          )}
         </Link>
 
         {/* Quick View Floating Action */}

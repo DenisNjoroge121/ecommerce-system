@@ -72,19 +72,6 @@ export default function ProductDetail({ sellerPhone = "254700000000" }) {
     window.open(`https://wa.me/${sellerPhone}?text=${encodeURIComponent(text)}`, '_blank', 'noopener,noreferrer');
   };
 
-  const getImageSrc = () => {
-    if (imageError || !product.image) {
-      return 'https://images.unsplash.com/photo-1523275335684-37898b6baf30?w=800&auto=format&fit=crop&q=80';
-    }
-    if (product.image.startsWith('http://') || product.image.startsWith('https://')) {
-      return product.image;
-    }
-    const backendBase = 'http://127.0.0.1:8000';
-    return product.image.startsWith('/')
-      ? `${backendBase}${product.image}`
-      : `${backendBase}/${product.image}`;
-  };
-
   return (
     <div className="max-w-5xl mx-auto py-6">
       <Link
@@ -97,12 +84,18 @@ export default function ProductDetail({ sellerPhone = "254700000000" }) {
       <div className="bg-white rounded-2xl border border-gray-100 shadow-sm grid grid-cols-1 md:grid-cols-2 overflow-hidden">
         {/* Product Image */}
         <div className="bg-gray-50 aspect-square relative overflow-hidden flex items-center justify-center p-4">
-          <img
-            src={getImageSrc()}
-            alt={product.title}
-            onError={() => setImageError(true)}
-            className="w-full h-full object-cover rounded-xl"
-          />
+          {product.image && !imageError ? (
+            <img
+              src={product.image}
+              alt={product.title}
+              onError={() => setImageError(true)}
+              className="w-full h-full object-cover rounded-xl"
+            />
+          ) : (
+            <div className="w-full h-full flex items-center justify-center text-sm text-gray-400" role="img" aria-label="Product image unavailable">
+              Image unavailable
+            </div>
+          )}
 
         </div>
 
