@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import API from '../api';
-import { Store, Palette, Heart, ShieldCheck, Send } from 'lucide-react';
+import { Store, Palette, Heart, ShieldCheck, Send, Phone, Mail } from 'lucide-react';
 
 export default function About() {
   const [formData, setFormData] = useState({ name: '', email: '', message: '' });
@@ -75,6 +75,16 @@ export default function About() {
           <div className="bg-sky-50 border border-sky-100 rounded-xl p-4">
             <h4 className="font-semibold text-gray-900 text-sm">Need help choosing?</h4>
             <p className="text-sm text-gray-600 mt-1">Ask us about a product, its color or availability, or send a request about an item you have in mind.</p>
+          </div>
+          <div className="space-y-3 text-sm text-gray-600">
+            <a href="tel:+254716492940" className="flex items-center gap-3 hover:text-sky-700 transition">
+              <Phone className="w-4 h-4 text-emerald-600 shrink-0" />
+              <span>+254716492940</span>
+            </a>
+            <a href="mailto:felixmash8@gmail.com" className="flex items-center gap-3 hover:text-sky-700 transition">
+              <Mail className="w-4 h-4 text-sky-600 shrink-0" />
+              <span>felixmash8@gmail.com</span>
+            </a>
           </div>
         </div>
 
