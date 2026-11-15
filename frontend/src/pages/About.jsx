@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import API from '../api';
-import { Store, Palette, Heart, ShieldCheck, Send, Phone, Mail } from 'lucide-react';
+import beloLogo from '../assets/Belo.png';
+import { Palette, Heart, ShieldCheck, Send, Phone, Mail } from 'lucide-react';
 
 export default function About() {
   const [formData, setFormData] = useState({ name: '', email: '', message: '' });
@@ -29,9 +30,7 @@ export default function About() {
     <div className="max-w-4xl mx-auto space-y-8 py-4">
       {/* Hero Header */}
       <div className="bg-white p-8 rounded-2xl border border-gray-100 shadow-sm text-center">
-        <div className="inline-flex p-3 bg-sky-50 text-sky-600 rounded-xl mb-4">
-          <Store className="w-8 h-8" />
-        </div>
+        <img src={beloLogo} alt="Belo Creations" className="w-20 h-20 object-contain mx-auto mb-4" />
         <h1 className="text-3xl font-bold text-gray-900">About Belo Creations</h1>
         <p className="text-gray-500 mt-2 max-w-xl mx-auto">
           We bring crochet creations to your screen, making it easy to explore distinctive handmade pieces and find something that feels like you.
