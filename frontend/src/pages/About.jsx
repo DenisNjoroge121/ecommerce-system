@@ -16,11 +16,27 @@ export default function About() {
     setErrorMsg('');
 
     try {
-      await API.post('contact/', formData);
+      const response = await fetch('https://formspree.io/f/mljbjjoy', {
+        method: 'POST',
+        headers: {
+          Accept: 'application/json',
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(formData),
+      });
+
+      if (!response.ok) {
+        const result = await response.json().catch(() => ({}));
+        throw new Error(result.errors?.map((item) => item.message).join(' ') || 'Failed to send message.');
+      }
+
+      API.post('contact/', formData).catch((error) => {
+        console.error('Failed to save inquiry record:', error);
+      });
       setSuccessMsg('Your message has been sent successfully! We will get back to you soon.');
       setFormData({ name: '', email: '', message: '' });
-    } catch {
-      setErrorMsg('Failed to send message. Please try again.');
+    } catch (error) {
+      setErrorMsg(error.message || 'Failed to send message. Please try again.');
     } finally {
       setLoading(false);
     }
