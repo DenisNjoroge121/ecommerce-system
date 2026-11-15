@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import API from '../api';
-import { Store, MapPin, Mail, Phone, ShieldCheck, Clock, Send } from 'lucide-react';
+import { Store, Palette, Heart, ShieldCheck, Send } from 'lucide-react';
 
 export default function About() {
   const [formData, setFormData] = useState({ name: '', email: '', message: '' });
@@ -32,60 +32,49 @@ export default function About() {
         <div className="inline-flex p-3 bg-sky-50 text-sky-600 rounded-xl mb-4">
           <Store className="w-8 h-8" />
         </div>
-        <h1 className="text-3xl font-bold text-gray-900">About Our Store</h1>
+        <h1 className="text-3xl font-bold text-gray-900">About Belo Creations</h1>
         <p className="text-gray-500 mt-2 max-w-xl mx-auto">
-          We provide high-quality products with secure mobile payments and instant communication options to make your shopping experience seamless.
+          We bring crochet creations to your screen, making it easy to explore distinctive handmade pieces and find something that feels like you.
         </p>
       </div>
 
-      {/* Grid Features */}
+      {/* What makes the collection special */}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
         <div className="bg-white p-6 rounded-xl border border-gray-100 shadow-sm space-y-3">
-          <div className="w-10 h-10 bg-emerald-50 text-emerald-600 rounded-lg flex items-center justify-center">
-            <ShieldCheck className="w-5 h-5" />
-          </div>
-          <h3 className="font-semibold text-gray-900">Secure Payments</h3>
-          <p className="text-sm text-gray-500">Pay safely using Lipa Na M-Pesa STK push or major credit/debit cards instantly.</p>
-        </div>
-
-        <div className="bg-white p-6 rounded-xl border border-gray-100 shadow-sm space-y-3">
           <div className="w-10 h-10 bg-sky-50 text-sky-600 rounded-lg flex items-center justify-center">
-            <Clock className="w-5 h-5" />
+            <Heart className="w-5 h-5" />
           </div>
-          <h3 className="font-semibold text-gray-900">Fast Order Processing</h3>
-          <p className="text-sm text-gray-500">Orders are confirmed in real-time as soon as your payment transaction is verified.</p>
+          <h3 className="font-semibold text-gray-900">Made with crochet</h3>
+          <p className="text-sm text-gray-500">Discover crochet bags, hats, clothing, and accessories, each with the character and texture that make crochet special.</p>
         </div>
 
         <div className="bg-white p-6 rounded-xl border border-gray-100 shadow-sm space-y-3">
           <div className="w-10 h-10 bg-purple-50 text-purple-600 rounded-lg flex items-center justify-center">
-            <MapPin className="w-5 h-5" />
+            <Palette className="w-5 h-5" />
           </div>
-          <h3 className="font-semibold text-gray-900">Physical Location</h3>
-          <p className="text-sm text-gray-500">Visit our store or reach out online for inquiries, custom orders, and customer support.</p>
+          <h3 className="font-semibold text-gray-900">A style for everyday</h3>
+          <p className="text-sm text-gray-500">Browse different colors, designs, and product details to choose a piece that suits your style or makes a thoughtful gift.</p>
+        </div>
+
+        <div className="bg-white p-6 rounded-xl border border-gray-100 shadow-sm space-y-3">
+          <div className="w-10 h-10 bg-emerald-50 text-emerald-600 rounded-lg flex items-center justify-center">
+            <ShieldCheck className="w-5 h-5" />
+          </div>
+          <h3 className="font-semibold text-gray-900">Simple online shopping</h3>
+          <p className="text-sm text-gray-500">View available products, check prices and stock, then place your order online using the checkout options provided.</p>
         </div>
       </div>
 
       {/* Contact & Inquiry Section */}
       <div className="grid grid-cols-1 md:grid-cols-2 gap-8 bg-white p-8 rounded-2xl border border-gray-100 shadow-sm">
         <div className="space-y-6">
-          <h3 className="text-xl font-bold text-gray-900">Get in Touch</h3>
+          <h3 className="text-xl font-bold text-gray-900">A little more about the shop</h3>
           <p className="text-sm text-gray-500 leading-relaxed">
-            Have questions regarding a product or need a custom order? Drop us a message or contact our support team directly.
+            Belo Creations is an online shop for people who appreciate the color, detail, and versatility of crochet. We showcase each available piece so you can browse at your own pace and choose what works for you.
           </p>
-
-          <div className="space-y-4 text-sm text-gray-600">
-            <div className="flex items-center gap-3">
-              <MapPin className="w-5 h-5 text-sky-600 shrink-0" />
-              <span>Nairobi, Kenya</span>
-            </div>
-            <div className="flex items-center gap-3">
-              <Phone className="w-5 h-5 text-emerald-600 shrink-0" />
-              <span>+254 700 000 000</span>
-            </div>
-            <div className="flex items-center gap-3">
-              <Mail className="w-5 h-5 text-sky-600 shrink-0" />
-              <span>support@devstore.com</span>
-            </div>
+          <div className="bg-sky-50 border border-sky-100 rounded-xl p-4">
+            <h4 className="font-semibold text-gray-900 text-sm">Need help choosing?</h4>
+            <p className="text-sm text-gray-600 mt-1">Ask us about a product, its color or availability, or send a request about an item you have in mind.</p>
           </div>
         </div>
 
