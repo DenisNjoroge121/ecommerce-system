@@ -1,13 +1,15 @@
 import { useEffect, useState, useMemo } from 'react';
-import API from '../api';
 import ProductCard from '../components/ProductCard';
+import { useCatalogStore } from '../store/useCatalogStore';
+import heroImage from '../assets/Hero.jpg';
 import { Search, SlidersHorizontal, Sparkles, Filter, X } from 'lucide-react';
 
 export default function Home() {
-  const [products, setProducts] = useState([]);
-  const [categories, setCategories] = useState([]);
-  const [loading, setLoading] = useState(true);
-  const [loadingMore, setLoadingMore] = useState(false);
+  const products = useCatalogStore((state) => state.products);
+  const categories = useCatalogStore((state) => state.categories);
+  const loading = useCatalogStore((state) => state.loading);
+  const loadingMore = useCatalogStore((state) => state.loadingMore);
+  const loadCatalog = useCatalogStore((state) => state.loadCatalog);
 
   // Filters state
   const [searchQuery, setSearchQuery] = useState('');
@@ -19,45 +21,8 @@ export default function Home() {
   const [maxPrice, setMaxPrice] = useState('');
 
   useEffect(() => {
-    let cancelled = false;
-
-    API.get('categories/')
-      .then((response) => {
-        if (!cancelled) setCategories(response.data);
-      })
-      .catch((err) => console.error('Failed to load categories:', err));
-
-    const loadProducts = async () => {
-      let page = 1;
-      try {
-        let hasMore = true;
-        while (hasMore && !cancelled) {
-          const response = await API.get('products/', { params: { page, page_size: 8 } });
-          const payload = response.data;
-          const batch = Array.isArray(payload) ? payload : (payload.results || []);
-          if (cancelled) return;
-
-          setProducts((current) => page === 1 ? batch : [...current, ...batch]);
-          hasMore = Array.isArray(payload) ? false : Boolean(payload.next);
-          if (page === 1) {
-            setLoading(false);
-            setLoadingMore(hasMore);
-          }
-          page += 1;
-        }
-      } catch (err) {
-        console.error('Failed to load products:', err);
-      } finally {
-        if (!cancelled) {
-          setLoading(false);
-          setLoadingMore(false);
-        }
-      }
-    };
-
-    loadProducts();
-    return () => { cancelled = true; };
-  }, []);
+    loadCatalog();
+  }, [loadCatalog]);
 
   const subcategories = categories.filter((category) => String(category.parent) === selectedCategory);
   const colors = [...new Set(products.map((product) => product.color).filter(Boolean))].sort();
@@ -92,16 +57,21 @@ export default function Home() {
   return (
     <div className="space-y-8 pb-12">
       {/* Hero Welcome Banner */}
-      <div className="relative rounded-3xl bg-linear-to-r from-slate-900 via-sky-950 to-slate-900 text-black p-8 md:p-12 overflow-hidden shadow-sm">
+      <div
+        className="relative rounded-3xl bg-cover bg-center text-white p-8 md:p-12 overflow-hidden shadow-sm"
+        style={{
+          backgroundImage: `linear-gradient(90deg, rgba(15, 23, 42, 0.88) 0%, rgba(15, 23, 42, 0.68) 48%, rgba(15, 23, 42, 0.28) 100%), url(${heroImage})`,
+        }}
+      >
         <div className="relative z-10 max-w-2xl space-y-4">
-          <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-sky-500/10 border border-sky-400/20 text-sky-600 text-xs font-semibold">
+          <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-white/90 border border-white/60 text-sky-900 text-xs font-semibold">
             <Sparkles className="w-3.5 h-3.5" />
             <span>Curated Online Store</span>
           </div>
           <h1 className="text-3xl md:text-5xl font-extrabold tracking-tight leading-tight">
             Handcrafted Crochet Bags – Vibrant, Durable, and Made to Last
           </h1>
-          <p className="text-slate-600 text-sm md:text-base leading-relaxed">
+          <p className="text-white/90 text-sm md:text-base leading-relaxed">
             We specialize in crocheted bags that combine style and durability. Explore our curated collection, chat with us on WhatsApp, and enjoy secure mobile checkout.
           </p>
         </div>
