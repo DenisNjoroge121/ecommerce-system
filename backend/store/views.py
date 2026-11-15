@@ -14,6 +14,7 @@ from rest_framework.decorators import api_view, permission_classes
 from rest_framework.permissions import AllowAny, IsAuthenticated, IsAdminUser
 from rest_framework.response import Response
 from rest_framework.parsers import MultiPartParser, FormParser, JSONParser
+from rest_framework.pagination import PageNumberPagination
 from rest_framework.authtoken.models import Token
 
 from .models import Category, ContactInquiry, Product, Order, OrderItem, Transaction
@@ -148,11 +149,24 @@ class CategoryViewSet(viewsets.ModelViewSet):
     serializer_class = CategorySerializer
     permission_classes = [AllowAny]
 
+class ProductPagination(PageNumberPagination):
+    page_size = 8
+    page_size_query_param = 'page_size'
+    max_page_size = 32
+
+
 class ProductViewSet(viewsets.ModelViewSet):
     queryset = Product.objects.all().order_by('-created_at')
     serializer_class = ProductSerializer
     permission_classes = [AllowAny]
     parser_classes = [MultiPartParser, FormParser, JSONParser]
+    pagination_class = ProductPagination
+
+    def paginate_queryset(self, queryset):
+        # Keep the existing array response for admin and other callers that do not request pages.
+        if 'page' not in self.request.query_params:
+            return None
+        return super().paginate_queryset(queryset)
 
     def get_queryset(self):
         queryset = Product.objects.all().order_by('-created_at')

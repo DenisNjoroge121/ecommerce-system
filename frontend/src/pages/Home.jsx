@@ -7,6 +7,7 @@ export default function Home() {
   const [products, setProducts] = useState([]);
   const [categories, setCategories] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [loadingMore, setLoadingMore] = useState(false);
 
   // Filters state
   const [searchQuery, setSearchQuery] = useState('');
@@ -18,13 +19,44 @@ export default function Home() {
   const [maxPrice, setMaxPrice] = useState('');
 
   useEffect(() => {
-    Promise.all([API.get('products/'), API.get('categories/')])
-      .then(([productsRes, categoriesRes]) => {
-        setProducts(productsRes.data);
-        setCategories(categoriesRes.data);
+    let cancelled = false;
+
+    API.get('categories/')
+      .then((response) => {
+        if (!cancelled) setCategories(response.data);
       })
-      .catch((err) => console.error('Failed to load store data:', err))
-      .finally(() => setLoading(false));
+      .catch((err) => console.error('Failed to load categories:', err));
+
+    const loadProducts = async () => {
+      let page = 1;
+      try {
+        let hasMore = true;
+        while (hasMore && !cancelled) {
+          const response = await API.get('products/', { params: { page, page_size: 8 } });
+          const payload = response.data;
+          const batch = Array.isArray(payload) ? payload : (payload.results || []);
+          if (cancelled) return;
+
+          setProducts((current) => page === 1 ? batch : [...current, ...batch]);
+          hasMore = Array.isArray(payload) ? false : Boolean(payload.next);
+          if (page === 1) {
+            setLoading(false);
+            setLoadingMore(hasMore);
+          }
+          page += 1;
+        }
+      } catch (err) {
+        console.error('Failed to load products:', err);
+      } finally {
+        if (!cancelled) {
+          setLoading(false);
+          setLoadingMore(false);
+        }
+      }
+    };
+
+    loadProducts();
+    return () => { cancelled = true; };
   }, []);
 
   const subcategories = categories.filter((category) => String(category.parent) === selectedCategory);
@@ -147,7 +179,7 @@ export default function Home() {
       {/* Products Grid */}
       {loading ? (
         <div className="text-center py-20 text-gray-400">Loading products catalog...</div>
-      ) : filteredProducts.length === 0 ? (
+      ) : filteredProducts.length === 0 && !loadingMore ? (
         <div className="text-center py-16 bg-white rounded-2xl border border-gray-100 p-8 space-y-3">
           <Filter className="w-8 h-8 text-gray-400 mx-auto" />
           <h3 className="font-bold text-gray-800 text-base">No Products Found</h3>
@@ -176,6 +208,7 @@ export default function Home() {
           ))}
         </div>
       )}
+      {loadingMore && <p className="text-center text-xs text-gray-400">Loading more products...</p>}
     </div>
   );
 }
