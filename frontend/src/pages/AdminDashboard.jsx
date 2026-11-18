@@ -3,6 +3,7 @@ import { Link } from 'react-router-dom';
 import API from '../api';
 import beloLogo from '../assets/Belo.png';
 import { useAuthStore } from '../store/useAuthStore';
+import { useCatalogStore } from '../store/useCatalogStore';
 import {
   Package, ShoppingCart, ShoppingBag, Smartphone, Plus, Edit2, Trash2,
   DollarSign, Send, X, RefreshCw, BarChart3,
@@ -377,6 +378,7 @@ export default function AdminDashboard() {
         showNotification(`Bag "${productForm.title}" added to inventory!`);
       }
 
+      useCatalogStore.getState().invalidateCatalog();
       setIsProductModalOpen(false);
       setImageFile(null);
       setImagePreview('');
@@ -395,6 +397,7 @@ export default function AdminDashboard() {
 
     try {
       await API.delete(`products/${productId}/`);
+      useCatalogStore.getState().invalidateCatalog();
       showNotification(`Product "${title}" was deleted.`);
       fetchAdminData();
     } catch (err) {
