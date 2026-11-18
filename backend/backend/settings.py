@@ -168,6 +168,27 @@ if os.getenv('SUPABASE_STORAGE_ENABLED', '').lower() == 'true':
         },
     }
 
+# Cloudflare R2 is S3-compatible. Set the public URL to either the bucket's
+# r2.dev URL (development) or a custom domain attached to the bucket.
+# if os.getenv('CLOUDFLARE_R2_ENABLED', '').lower() == 'true':
+#     r2_public_url = os.environ['CLOUDFLARE_R2_PUBLIC_URL'].strip().rstrip('/')
+#     r2_public_domain = r2_public_url.removeprefix('https://').removeprefix('http://')
+#     STORAGES['default'] = {
+#         'BACKEND': 'storages.backends.s3.S3Storage',
+#         'OPTIONS': {
+#             'bucket_name': os.environ['CLOUDFLARE_R2_BUCKET'],
+#             'endpoint_url': os.environ['CLOUDFLARE_R2_ENDPOINT'],
+#             'region_name': 'auto',
+#             'access_key': os.environ['CLOUDFLARE_R2_ACCESS_KEY_ID'],
+#             'secret_key': os.environ['CLOUDFLARE_R2_SECRET_ACCESS_KEY'],
+#             'addressing_style': 'path',
+#             'querystring_auth': False,
+#             'file_overwrite': False,
+#             'custom_domain': r2_public_domain,
+#             'url_protocol': 'https:',
+#         },
+#     }
+
 
 # Email
 # https://docs.djangoproject.com/en/6.1/topics/email/#topic-email-configuration

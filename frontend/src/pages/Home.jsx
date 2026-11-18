@@ -24,7 +24,9 @@ export default function Home() {
     loadCatalog();
   }, [loadCatalog]);
 
-  const subcategories = categories.filter((category) => String(category.parent) === selectedCategory);
+  const subcategories = categories.filter((category) =>
+    category.parent && (!selectedCategory || String(category.parent) === selectedCategory)
+  );
   const colors = [...new Set(products.map((product) => product.color).filter(Boolean))].sort();
 
   // Filtered and sorted products
@@ -123,9 +125,13 @@ export default function Home() {
             <option value="">All categories</option>
             {categories.filter((category) => !category.parent).map((category) => <option key={category.id} value={category.id}>{category.name}</option>)}
           </select>
-          <select value={selectedSubcategory} onChange={(e) => setSelectedSubcategory(e.target.value)} disabled={!selectedCategory} className="w-full px-3 py-2 rounded-xl border border-gray-200 text-sm disabled:bg-gray-50">
+          <select value={selectedSubcategory} onChange={(e) => setSelectedSubcategory(e.target.value)} disabled={!subcategories.length} className="w-full px-3 py-2 rounded-xl border border-gray-200 text-sm disabled:bg-gray-50">
             <option value="">All subcategories</option>
-            {subcategories.map((category) => <option key={category.id} value={category.id}>{category.name}</option>)}
+            {subcategories.map((category) => (
+              <option key={category.id} value={category.id}>
+                {selectedCategory ? category.name : `${category.parent_name} / ${category.name}`}
+              </option>
+            ))}
           </select>
           <select value={selectedColor} onChange={(e) => setSelectedColor(e.target.value)} className="w-full px-3 py-2 rounded-xl border border-gray-200 text-sm">
             <option value="">All colors</option>

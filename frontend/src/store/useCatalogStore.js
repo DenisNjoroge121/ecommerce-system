@@ -2,6 +2,7 @@ import { create } from 'zustand';
 import API from '../api';
 
 let catalogLoadPromise = null;
+let categoryLoadPromise = null;
 
 export const useCatalogStore = create((set, get) => ({
   products: [],
@@ -11,12 +12,18 @@ export const useCatalogStore = create((set, get) => ({
   hasLoaded: false,
 
   loadCatalog: () => {
-    if (get().hasLoaded || catalogLoadPromise) return catalogLoadPromise || Promise.resolve();
+    if (!categoryLoadPromise) {
+      categoryLoadPromise = API.get('categories/')
+        .then((response) => set({ categories: response.data }))
+        .catch((error) => console.error('Failed to load categories:', error))
+        .finally(() => {
+          categoryLoadPromise = null;
+        });
+    }
+
+    if (get().hasLoaded || catalogLoadPromise) return categoryLoadPromise || catalogLoadPromise;
 
     set({ loading: true });
-    API.get('categories/')
-      .then((response) => set({ categories: response.data }))
-      .catch((error) => console.error('Failed to load categories:', error));
 
     catalogLoadPromise = (async () => {
       let page = 1;

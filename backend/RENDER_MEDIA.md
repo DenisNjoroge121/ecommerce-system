@@ -16,4 +16,4 @@ The disk is available on paid Render services. Render disks are attached to one 
 
 Attaching a disk does not recover files that Render has already removed. If the old uploads still exist on the running instance, copy them into `/var/data/media` before they are lost. Otherwise, upload those product images again in Django admin after the disk is attached.
 
-For a free Render web service or a deployment that needs multiple instances, store media in an object storage service (for example, S3-compatible storage) instead of the service filesystem.
+For a free Render web service or a deployment that needs multiple instances, configure [Cloudflare R2 storage](CLOUDFLARE_R2.md) or another object storage service.
