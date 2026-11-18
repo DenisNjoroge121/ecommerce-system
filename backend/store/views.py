@@ -23,7 +23,12 @@ from .serializers import (
     CategorySerializer, ContactInquirySerializer, ProductSerializer,
     OrderSerializer, UserSerializer, RegisterSerializer, TransactionSerializer
 )
-from .cache import CATALOG_CACHE_TTL, category_list_cache_key, product_list_cache_key
+from .cache import (
+    CATALOG_CACHE_TTL,
+    category_list_cache_key,
+    product_list_cache_key,
+    staff_product_list_cache_key,
+)
 
 # -------------------------------------------------------------
 # AUTHENTICATION VIEWS
@@ -182,11 +187,11 @@ class ProductViewSet(viewsets.ModelViewSet):
         return super().paginate_queryset(queryset)
 
     def list(self, request, *args, **kwargs):
-        # Staff can see inactive products, so don't share their results with shoppers.
-        if getattr(request.user, 'is_staff', False):
-            return super().list(request, *args, **kwargs)
-
-        cache_key = product_list_cache_key(request.get_full_path())
+        # Keep staff data in a separate cache namespace because it includes
+        # inactive products that must never be served from the public cache.
+        is_staff = getattr(request.user, 'is_staff', False)
+        cache_key_builder = staff_product_list_cache_key if is_staff else product_list_cache_key
+        cache_key = cache_key_builder(request.get_full_path())
         cached_data = cache.get(cache_key)
         if cached_data is not None:
             return Response(cached_data)

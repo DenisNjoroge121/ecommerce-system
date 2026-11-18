@@ -24,6 +24,11 @@ def product_list_cache_key(request_path):
     return f'catalog:products:v{catalog_cache_version()}:{path_hash}'
 
 
+def staff_product_list_cache_key(request_path):
+    path_hash = hashlib.sha256(request_path.encode('utf-8')).hexdigest()
+    return f'catalog:staff-products:v{catalog_cache_version()}:{path_hash}'
+
+
 def invalidate_catalog_cache():
     try:
         cache.incr(CATALOG_CACHE_VERSION_KEY)

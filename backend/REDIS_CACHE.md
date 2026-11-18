@@ -1,6 +1,8 @@
 # Redis-compatible catalog cache
 
-The backend uses `django-redis` when `REDIS_URL` is set. Catalog and category list responses are cached for five minutes. Product or category changes clear the active catalog cache version so shoppers get updated results on the next request. Staff product lists bypass the shared public-product cache.
+The backend uses `django-redis` when `REDIS_URL` is set. Catalog and category list responses are cached for five minutes. The admin product list has its own cache namespace, separate from the public catalog, so it can include inactive products safely. Product or category changes invalidate both catalog namespaces so updated data appears on the next request.
+
+Orders, payment state, analytics, and customer records are not cached; the admin dashboard continues to receive fresh operational data.
 
 ## Configure Render
 
