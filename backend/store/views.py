@@ -7,6 +7,7 @@ from datetime import datetime, timedelta
 from django.conf import settings
 from django.contrib.auth import authenticate
 from django.contrib.auth.models import User
+from django.core.cache import cache
 from django.db.models import Q, Sum, Count, Avg
 from django.utils import timezone
 from rest_framework import viewsets, status, generics
@@ -22,6 +23,7 @@ from .serializers import (
     CategorySerializer, ContactInquirySerializer, ProductSerializer,
     OrderSerializer, UserSerializer, RegisterSerializer, TransactionSerializer
 )
+from .cache import CATALOG_CACHE_TTL, category_list_cache_key, product_list_cache_key
 
 # -------------------------------------------------------------
 # AUTHENTICATION VIEWS
@@ -149,6 +151,17 @@ class CategoryViewSet(viewsets.ModelViewSet):
     serializer_class = CategorySerializer
     permission_classes = [AllowAny]
 
+    def list(self, request, *args, **kwargs):
+        cache_key = category_list_cache_key()
+        cached_data = cache.get(cache_key)
+        if cached_data is not None:
+            return Response(cached_data)
+
+        response = super().list(request, *args, **kwargs)
+        if response.status_code == status.HTTP_200_OK:
+            cache.set(cache_key, response.data, CATALOG_CACHE_TTL)
+        return response
+
 class ProductPagination(PageNumberPagination):
     page_size = 8
     page_size_query_param = 'page_size'
@@ -167,6 +180,21 @@ class ProductViewSet(viewsets.ModelViewSet):
         if 'page' not in self.request.query_params:
             return None
         return super().paginate_queryset(queryset)
+
+    def list(self, request, *args, **kwargs):
+        # Staff can see inactive products, so don't share their results with shoppers.
+        if getattr(request.user, 'is_staff', False):
+            return super().list(request, *args, **kwargs)
+
+        cache_key = product_list_cache_key(request.get_full_path())
+        cached_data = cache.get(cache_key)
+        if cached_data is not None:
+            return Response(cached_data)
+
+        response = super().list(request, *args, **kwargs)
+        if response.status_code == status.HTTP_200_OK:
+            cache.set(cache_key, response.data, CATALOG_CACHE_TTL)
+        return response
 
     def get_queryset(self):
         queryset = Product.objects.all().order_by('-created_at')

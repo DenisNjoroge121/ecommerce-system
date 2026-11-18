@@ -98,6 +98,29 @@ DATABASES = {
     )
 }
 
+# Use a shared Redis-compatible cache when REDIS_URL is configured. Render Key
+# Value is Valkey-compatible; local development falls back to per-process cache.
+redis_url = os.getenv('REDIS_URL')
+if redis_url:
+    CACHES = {
+        'default': {
+            'BACKEND': 'django_redis.cache.RedisCache',
+            'LOCATION': redis_url,
+            'OPTIONS': {
+                'CLIENT_CLASS': 'django_redis.client.DefaultClient',
+                'IGNORE_EXCEPTIONS': True,
+            },
+            'KEY_PREFIX': 'belo-store',
+        },
+    }
+else:
+    CACHES = {
+        'default': {
+            'BACKEND': 'django.core.cache.backends.locmem.LocMemCache',
+            'LOCATION': 'belo-store-local-cache',
+        },
+    }
+
 
 # Password validation
 # https://docs.djangoproject.com/en/6.1/ref/settings/#auth-password-validators
