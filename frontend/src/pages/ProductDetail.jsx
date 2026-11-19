@@ -5,7 +5,7 @@ import { useCartStore } from '../store/useCartStore';
 import { useAuthStore } from '../store/useAuthStore';
 import { ShoppingCart, MessageCircle, ArrowLeft, Plus, Minus, Check } from 'lucide-react';
 
-export default function ProductDetail({ sellerPhone = "254700000000" }) {
+export default function ProductDetail({ sellerPhone = "254716492940" }) {
   const { id } = useParams();
   const navigate = useNavigate();
   const location = useLocation();
